@@ -40,7 +40,11 @@ private:
     bool CapsuleFitsAt(const FVector& Location) const;
     void Interact();
     void TogglePause();
-    void Restart();
+    // Named RestartDelivery, not Restart: APawn::Restart() is virtual, so a method
+    // with that exact signature silently overrides it. That swallowed the engine's
+    // own possession-time Restart and left MovementMode at its zero-initialised
+    // MOVE_None, making the pawn inert.
+    void RestartDelivery();
     void Quit();
     void UpdateFocus();
     bool IsPaused() const;

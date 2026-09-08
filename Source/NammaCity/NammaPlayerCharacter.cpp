@@ -76,15 +76,6 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
 void ANammaPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
-    // The movement component comes up in MOVE_None on this map, which leaves the pawn
-    // inert: no gravity, no walking, no jumping. Mouse look still worked because
-    // rotation is controller-side, which made it look like only some keys were broken.
-    if (auto* Move = GetCharacterMovement(); Move && Move->MovementMode == MOVE_None)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Movement came up in MOVE_None (updated component: %s); forcing MOVE_Walking."),
-            *GetNameSafe(Move->UpdatedComponent));
-        Move->SetMovementMode(MOVE_Walking);
-    }
     StartTransform = GetActorTransform();
     auto ApplyColor = [](UStaticMeshComponent* Part, const TCHAR* Path) {
         if (auto* Material = LoadObject<UMaterialInterface>(nullptr, Path)) Part->SetMaterial(0, Material);
@@ -155,7 +146,7 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
     Input->BindAction(PauseAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePause);
     auto* RestartAction = Button(EKeys::R);
     RestartAction->bTriggerWhenPaused = true;
-    Input->BindAction(RestartAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::Restart);
+    Input->BindAction(RestartAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::RestartDelivery);
     auto* QuitAction = Button(EKeys::Q);
     QuitAction->bTriggerWhenPaused = true;
     Input->BindAction(QuitAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::Quit);
@@ -316,7 +307,7 @@ void ANammaPlayerCharacter::TogglePause()
     StopJumping();
     UGameplayStatics::SetGamePaused(this, !IsPaused());
 }
-void ANammaPlayerCharacter::Restart()
+void ANammaPlayerCharacter::RestartDelivery()
 {
     auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
     if (Mode && (IsPaused() || Mode->GetDeliveryStage() == ENammaDeliveryStage::Complete))
