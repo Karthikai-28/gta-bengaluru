@@ -44,6 +44,7 @@ ASSET_PREFIXES = {
     ".umap": ("L_",),
     ".uasset": (
         "A_",
+        "ABP_", "AO_", "BS_", "CR_", "PA_", "SKM_", "MM_", "MF_",
         "BP_",
         "DA_",
         "DT_",
