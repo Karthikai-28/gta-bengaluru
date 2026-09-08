@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "NammaPlayerCharacter.generated.h"
 
+class UPhysicsHandleComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
@@ -23,7 +24,13 @@ public:
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     void RecoverToStart();
     FText GetInteractionPrompt() const;
+    bool GetHandTarget(FVector& WorldTarget) const;
 private:
+    friend class FNammaHumanWorldTest;
+    void ToggleRagdoll();
+    void GrabOrRelease();
+    void ReleaseObject();
+    void TickHeldObject();
     void Forward(const FInputActionValue& Value);
     void Right(const FInputActionValue& Value);
     void LookYaw(const FInputActionValue& Value);
@@ -52,8 +59,9 @@ private:
     virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> Boom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
-    UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Body;
-    UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Head;
+    UPROPERTY(VisibleAnywhere) TObjectPtr<UPhysicsHandleComponent> PhysicsHandle;
+    bool bRagdoll = false;
+    FTransform StandingMeshTransform;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Parcel;
     UPROPERTY() TObjectPtr<UInputMappingContext> Mapping;
     UPROPERTY() TArray<TObjectPtr<UInputAction>> Actions;

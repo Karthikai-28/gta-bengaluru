@@ -1,4 +1,8 @@
 #include "NammaPlayerCharacter.h"
+#include "NammaHumanAnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "PhysicsEngine/PhysicsHandleComponent.h"
 #include "NammaCityGameModeBase.h"
 #include "NammaInteractable.h"
 #include "Camera/CameraComponent.h"
@@ -29,10 +33,28 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
     GetCapsuleComponent()->InitCapsuleSize(35.f, 90.f);
     bUseControllerRotationYaw = false;
     GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate = FRotator(0, 540, 0);
+    GetCharacterMovement()->RotationRate = FRotator(0, 360, 0);
+    // Unreal units are centimetres, seconds and kilograms. 4.2 m/s launch speed
+    // under 9.81 m/s^2 gravity gives a 0.90 m apex and 0.86 s total airtime.
+    GetCharacterMovement()->Mass = 75.f;
+    GetCharacterMovement()->MaxAcceleration = 1000.f;
+    GetCharacterMovement()->BrakingDecelerationWalking = 1200.f;
+    GetCharacterMovement()->bUseSeparateBrakingFriction = true;
+    GetCharacterMovement()->BrakingFriction = 0.f;
+    GetCharacterMovement()->GroundFriction = 6.f;
+    GetCharacterMovement()->MaxStepHeight = 35.f;
+    GetCharacterMovement()->SetWalkableFloorAngle(45.f);
+    GetCharacterMovement()->MaxSimulationTimeStep = 1.f / 120.f;
+    GetCharacterMovement()->MaxSimulationIterations = 8;
+    GetCharacterMovement()->bEnablePhysicsInteraction = true;
+    GetCharacterMovement()->InitialPushForceFactor = 100.f;
+    GetCharacterMovement()->PushForceFactor = 7500.f;
+    GetCharacterMovement()->bPushForceScaledToMass = false;
+    GetCharacterMovement()->bTouchForceScaledToMass = false;
+    GetCharacterMovement()->TouchForceFactor = 100.f;
     GetCharacterMovement()->MaxWalkSpeed = 350;
-    GetCharacterMovement()->JumpZVelocity = 480;
-    GetCharacterMovement()->AirControl = 0.3f;
+    GetCharacterMovement()->JumpZVelocity = 420;
+    GetCharacterMovement()->AirControl = 0.15f;
     GetCharacterMovement()->MaxWalkSpeedCrouched = 175;
     GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
     // A flat capsule base stops the character sliding off ledge edges it should be
@@ -41,8 +63,8 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
     GetCharacterMovement()->SetCrouchedHalfHeight(60.f);
     Boom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     Boom->SetupAttachment(RootComponent);
-    Boom->TargetArmLength = 360;
-    Boom->SocketOffset = FVector(0, 45, 65);
+    Boom->TargetArmLength = 400;
+    Boom->SocketOffset = FVector(0, 45, 30);
     Boom->bUsePawnControlRotation = true;
     Boom->bDoCollisionTest = true;
     Boom->bEnableCameraLag = true;
@@ -51,24 +73,24 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
     Camera->SetupAttachment(Boom);
     Camera->FieldOfView = 80;
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-    Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Body"));
-    Body->SetupAttachment(RootComponent);
-    Body->SetStaticMesh(Cube.Object);
-    Body->SetRelativeScale3D(FVector(0.45, 0.55, 1.1));
-    Body->SetRelativeLocation(FVector(0, 0, -20));
-    Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    Head = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Head"));
-    Head->SetupAttachment(RootComponent);
-    Head->SetStaticMesh(Sphere.Object);
-    Head->SetRelativeScale3D(FVector(0.4));
-    Head->SetRelativeLocation(FVector(0, 0, 55));
-    Head->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    static ConstructorHelpers::FObjectFinder<USkeletalMesh> Human(
+        TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
+    static ConstructorHelpers::FClassFinder<UAnimInstance> Animation(
+        TEXT("/Game/NammaCity/Characters/ABP_NammaHuman"));
+    GetMesh()->SetSkeletalMesh(Human.Object);
+    GetMesh()->SetRelativeLocationAndRotation(FVector(0, 0, -90), FRotator(0, -90, 0));
+    GetMesh()->SetAnimInstanceClass(Animation.Class);
+    GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
+    PhysicsHandle = CreateDefaultSubobject<UPhysicsHandleComponent>(TEXT("PhysicsHandle"));
+    PhysicsHandle->LinearStiffness = 1500.f;
+    PhysicsHandle->LinearDamping = 200.f;
+    PhysicsHandle->AngularStiffness = 1000.f;
+    PhysicsHandle->AngularDamping = 100.f;
     Parcel = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Parcel"));
-    Parcel->SetupAttachment(RootComponent);
+    Parcel->SetupAttachment(GetMesh(), TEXT("spine_03"));
     Parcel->SetStaticMesh(Cube.Object);
     Parcel->SetRelativeScale3D(FVector(0.35, 0.45, 0.4));
-    Parcel->SetRelativeLocation(FVector(-30, 0, 0));
+    Parcel->SetRelativeLocation(FVector(-15, -20, 0));
     Parcel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Parcel->SetVisibility(false);
 }
@@ -77,11 +99,10 @@ void ANammaPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
     StartTransform = GetActorTransform();
+    StandingMeshTransform = GetMesh()->GetRelativeTransform();
     auto ApplyColor = [](UStaticMeshComponent* Part, const TCHAR* Path) {
         if (auto* Material = LoadObject<UMaterialInterface>(nullptr, Path)) Part->SetMaterial(0, Material);
     };
-    ApplyColor(Body, TEXT("/Game/NammaCity/Materials/Sandbox/M_Sandbox_teal.M_Sandbox_teal"));
-    ApplyColor(Head, TEXT("/Game/NammaCity/Materials/Sandbox/M_Sandbox_cream.M_Sandbox_cream"));
     ApplyColor(Parcel, TEXT("/Game/NammaCity/Materials/Sandbox/M_Sandbox_ochre.M_Sandbox_ochre"));
     if (auto* PC = Cast<APlayerController>(Controller))
     {
@@ -102,6 +123,7 @@ void ANammaPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
         if (auto* LP = PC->GetLocalPlayer())
             if (auto* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
                 if (Mapping) Subsystem->RemoveMappingContext(Mapping);
+    ReleaseObject();
     Super::EndPlay(EndPlayReason);
 }
 
@@ -141,6 +163,8 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
     Input->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ANammaPlayerCharacter::CrouchEnd);
     Input->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ANammaPlayerCharacter::CrouchEnd);
     Input->BindAction(Button(EKeys::E), ETriggerEvent::Started, this, &ANammaPlayerCharacter::Interact);
+    Input->BindAction(Button(EKeys::F), ETriggerEvent::Started, this, &ANammaPlayerCharacter::GrabOrRelease);
+    Input->BindAction(Button(EKeys::X), ETriggerEvent::Started, this, &ANammaPlayerCharacter::ToggleRagdoll);
     auto* PauseAction = Button(EKeys::Escape);
     PauseAction->bTriggerWhenPaused = true;
     Input->BindAction(PauseAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePause);
@@ -159,38 +183,25 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 bool ANammaPlayerCharacter::IsPaused() const { return UGameplayStatics::IsGamePaused(this); }
 void ANammaPlayerCharacter::Forward(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
 }
 void ANammaPlayerCharacter::Right(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
 }
 void ANammaPlayerCharacter::LookYaw(const FInputActionValue& V) { if (!IsPaused()) AddControllerYawInput(V.Get<float>()); }
 void ANammaPlayerCharacter::LookPitch(const FInputActionValue& V) { if (!IsPaused()) AddControllerPitchInput(-V.Get<float>()); }
 void ANammaPlayerCharacter::SprintStart() { if (!IsPaused()) GetCharacterMovement()->MaxWalkSpeed = 600; }
 void ANammaPlayerCharacter::SprintEnd() { GetCharacterMovement()->MaxWalkSpeed = 350; }
-void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bTraversing && !TryTraversal()) Jump(); }
+void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !TryTraversal()) Jump(); }
 void ANammaPlayerCharacter::JumpEnd() { StopJumping(); }
-void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bTraversing) Crouch(); }
+void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bRagdoll && !bTraversing) Crouch(); }
 void ANammaPlayerCharacter::CrouchEnd() { UnCrouch(); }
 
-// The visible body is a plain static mesh on the capsule, so it does not follow the
-// capsule shrinking the way a skeletal mesh would. Squash it to match.
-void ANammaPlayerCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
-{
-    Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
-    Body->SetRelativeScale3D(FVector(0.45, 0.55, 0.73));
-    Body->SetRelativeLocation(FVector(0, 0, -13));
-    Head->SetRelativeLocation(FVector(0, 0, 25));
-}
-
-void ANammaPlayerCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
-{
-    Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
-    Body->SetRelativeScale3D(FVector(0.45, 0.55, 1.1));
-    Body->SetRelativeLocation(FVector(0, 0, -20));
-    Head->SetRelativeLocation(FVector(0, 0, 55));
-}
+// ACharacter preserves mesh height relative to the floor when the capsule shrinks.
+// The post-process pose bends the hips/knees; no mesh scaling is involved.
+void ANammaPlayerCharacter::OnStartCrouch(float H, float S) { Super::OnStartCrouch(H, S); }
+void ANammaPlayerCharacter::OnEndCrouch(float H, float S) { Super::OnEndCrouch(H, S); }
 
 bool ANammaPlayerCharacter::CapsuleFitsAt(const FVector& Location) const
 {
@@ -214,7 +225,8 @@ bool ANammaPlayerCharacter::TryTraversal()
     const FVector Origin = GetActorLocation();
     const FVector Feet = Origin - FVector(0, 0, HalfHeight);
     const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
-    if (Forward.IsNearlyZero() || GetCharacterMovement()->IsFalling()) return false;
+    if (Forward.IsNearlyZero() || !GetCharacterMovement()->IsMovingOnGround() || bIsCrouched
+        || PhysicsHandle->GetGrabbedComponent()) return false;
 
     FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaTraversal), false, this);
 
@@ -233,6 +245,7 @@ bool ANammaPlayerCharacter::TryTraversal()
         return false;
 
     const float LedgeHeight = Top.ImpactPoint.Z - Feet.Z;
+    if (!GetCharacterMovement()->IsWalkable(Top)) return false;
     if (LedgeHeight < MinLedgeHeight || LedgeHeight > MaxLedgeHeight) return false;
 
     // Prefer vaulting: if there is standable ground just beyond the obstacle, cross it
@@ -243,7 +256,7 @@ bool ANammaPlayerCharacter::TryTraversal()
         Beyond - FVector(0, 0, LedgeHeight + 120.f), ECC_Visibility, Params))
     {
         const FVector VaultTo = Landing.ImpactPoint + FVector(0, 0, HalfHeight + 2.f);
-        if (CapsuleFitsAt(VaultTo))
+        if (GetCharacterMovement()->IsWalkable(Landing) && CapsuleFitsAt(VaultTo))
         {
             TraversalStart = Origin;
             TraversalTarget = VaultTo;
@@ -292,7 +305,14 @@ void ANammaPlayerCharacter::TickTraversal(float DeltaSeconds)
         Position.Y = FMath::Lerp(TraversalStart.Y, TraversalTarget.Y, Reach);
         Position.Z = FMath::Lerp(TraversalStart.Z, TraversalTarget.Z, Rise);
     }
-    SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
+    FHitResult Hit;
+    SetActorLocation(Position, true, &Hit);
+    if (Hit.bBlockingHit)
+    {
+        bTraversing = false;
+        GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+        return;
+    }
 
     if (TraversalAlpha >= 1.f)
     {
@@ -322,6 +342,20 @@ void ANammaPlayerCharacter::Quit()
 }
 void ANammaPlayerCharacter::RecoverToStart()
 {
+    ReleaseObject();
+    if (bRagdoll)
+    {
+        GetMesh()->SetSimulatePhysics(false);
+        GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+        GetMesh()->SetRelativeTransform(StandingMeshTransform);
+        GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
+        GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        Boom->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+        Boom->SetRelativeLocation(FVector::ZeroVector);
+        bRagdoll = false;
+        GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+    }
+    UnCrouch();
     GetCharacterMovement()->StopMovementImmediately();
     SprintEnd();
     StopJumping();
@@ -335,6 +369,12 @@ void ANammaPlayerCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     TickTraversal(DeltaSeconds);
+    TickHeldObject();
+    if (bRagdoll)
+    {
+        if (GetMesh()->GetComponentLocation().Z < -500.f) RecoverToStart();
+        return;
+    }
     const FVector P = GetActorLocation();
     if (P.Z < -500 || FMath::Abs(P.X) > 6200 || FMath::Abs(P.Y) > 6200) RecoverToStart();
     UpdateFocus();
@@ -387,7 +427,83 @@ FText ANammaPlayerCharacter::GetInteractionPrompt() const
 }
 void ANammaPlayerCharacter::Interact()
 {
-    if (IsPaused()) return;
+    if (IsPaused() || bRagdoll || bTraversing) return;
     UpdateFocus();
     if (auto* Target = Cast<INammaInteractable>(FocusedActor.Get())) Target->Interact(this);
+}
+
+bool ANammaPlayerCharacter::GetHandTarget(FVector& WorldTarget) const
+{
+    if (bRagdoll || !PhysicsHandle->GetGrabbedComponent()) return false;
+    FRotator Rotation;
+    PhysicsHandle->GetTargetLocationAndRotation(WorldTarget, Rotation);
+    return true;
+}
+
+void ANammaPlayerCharacter::ReleaseObject()
+{
+    if (auto* Held = PhysicsHandle->GetGrabbedComponent())
+    {
+        GetCapsuleComponent()->IgnoreComponentWhenMoving(Held, false);
+        Held->IgnoreActorWhenMoving(this, false);
+        PhysicsHandle->ReleaseComponent();
+    }
+}
+
+void ANammaPlayerCharacter::GrabOrRelease()
+{
+    if (IsPaused() || bRagdoll || bTraversing) return;
+    if (PhysicsHandle->GetGrabbedComponent()) { ReleaseObject(); return; }
+    const FVector Start = GetMesh()->GetSocketLocation(TEXT("spine_03"));
+    const FVector Direction = GetControlRotation().Vector();
+    FHitResult Hit;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaGrab), false, this);
+    // Visibility sweep stops at walls, including static walls before a movable prop.
+    if (!GetWorld()->SweepSingleByChannel(Hit, Start, Start + Direction * 160.f, FQuat::Identity,
+        ECC_Visibility, FCollisionShape::MakeSphere(25.f), Params)) return;
+    UPrimitiveComponent* Part = Hit.GetComponent();
+    if (!Part || !Part->IsSimulatingPhysics(Hit.BoneName) || Part->GetMass() > 20.f) return;
+    PhysicsHandle->GrabComponentAtLocationWithRotation(Part, Hit.BoneName, Hit.ImpactPoint, Part->GetComponentRotation());
+    GetCapsuleComponent()->IgnoreComponentWhenMoving(Part, true);
+    Part->IgnoreActorWhenMoving(this, true);
+}
+
+void ANammaPlayerCharacter::TickHeldObject()
+{
+    auto* Held = PhysicsHandle->GetGrabbedComponent();
+    if (!Held) return;
+    const FVector Shoulder = GetMesh()->GetSocketLocation(TEXT("upperarm_r"));
+    const FVector Target = Shoulder + GetActorForwardVector() * 55.f + FVector(0, 0, -20.f);
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaHold), false, this);
+    Params.AddIgnoredComponent(Held);
+    FHitResult Hit;
+    if (FVector::DistSquared(Held->GetComponentLocation(), Shoulder) > FMath::Square(220.f)
+        || GetWorld()->LineTraceSingleByChannel(Hit, Shoulder, Target, ECC_Visibility, Params))
+    {
+        ReleaseObject();
+        return;
+    }
+    PhysicsHandle->SetTargetLocationAndRotation(Target, GetActorRotation());
+}
+
+void ANammaPlayerCharacter::ToggleRagdoll()
+{
+    if (IsPaused()) return;
+    // Recovery is an explicit safe reset, not a fabricated get-up animation.
+    if (bRagdoll) { RecoverToStart(); return; }
+    if (bTraversing || !GetMesh()->GetPhysicsAsset()) return;
+    ReleaseObject();
+    SprintEnd();
+    StopJumping();
+    const FVector Momentum = GetVelocity();
+    UnCrouch();
+    bRagdoll = true;
+    FocusedActor.Reset();
+    GetCharacterMovement()->DisableMovement();
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
+    GetMesh()->SetSimulatePhysics(true);
+    GetMesh()->SetAllPhysicsLinearVelocity(Momentum);
+    Boom->AttachToComponent(GetMesh(), FAttachmentTransformRules::KeepWorldTransform, TEXT("pelvis"));
+    Boom->SetRelativeLocation(FVector::ZeroVector);
 }
