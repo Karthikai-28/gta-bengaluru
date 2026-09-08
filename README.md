@@ -8,16 +8,16 @@ An original Bengaluru-inspired Unreal game. The active milestone is **Phase 1A: 
 
 ## Run the first playable
 
-The code and generators are present. **No Unreal build or gameplay run has been verified yet.** Engine installation, storage, and desktop Vulkan access remain prerequisites.
+The editor target builds locally. The player now has a skeletal mannequin, joint animation, foot/crouch IK, Chaos ragdoll, and physics pickup. See [human movement setup and current limits](docs/phase-1/HUMAN_MOVEMENT.md). Desktop Vulkan access is required for visual playtesting.
 
 1. Follow [workstation setup](docs/namma-city/docs/software/UBUNTU_22_04_SETUP.md), review [storage candidates](docs/phase-1/STORAGE_REVIEW.md), and install Epic's precompiled Linux UE5 build outside the repo.
 2. Run `python3 Scripts/configure_engine.py /absolute/path/to/UnrealEngine` to write local `.env` and the actual version pin. Commit `Config/UnrealVersion.json` once selected; never commit `.env`.
 3. Run `Scripts/test_host.sh` for engine-independent checks.
 4. Run `Scripts/build_editor.sh` **before** either generator; the sandbox requires the compiled C++ classes.
-5. Run `Scripts/create_smoke_test_map.sh` and `Scripts/create_player_sandbox.sh`.
+5. Run `Scripts/create_smoke_test_map.sh`, `Scripts/create_player_sandbox.sh`, then `Scripts/setup_human_character.sh`.
 6. Run `Scripts/launch_editor.sh` and use Play, or run `Scripts/build_game.sh`, `Scripts/package_game.sh`, then `Scripts/launch_game.sh` for the standalone game.
 
-WASD moves, mouse looks, Shift sprints, Space jumps, E interacts with the counter under the crosshair, and Escape pauses. R restarts from pause or completion; Q quits from pause. Follow the gold trail from the safehouse to Namma Tea, through Market Court, and on to Corner Stores. The parked auto-rickshaw is scenery.
+WASD moves, mouse looks, Shift sprints, Space jumps, C crouches, E interacts with a nearby counter, F grabs/drops a light physics object, X enters ragdoll or resets, and Escape pauses. R restarts from pause or completion; Q quits from pause. Follow the gold trail from the safehouse to Namma Tea, through Market Court, and on to Corner Stores. The parked auto-rickshaw is scenery.
 
 ## Project references
 
