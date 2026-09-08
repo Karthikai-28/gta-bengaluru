@@ -32,12 +32,20 @@ private:
     void SprintEnd();
     void JumpStart();
     void JumpEnd();
+    void CrouchStart();
+    void CrouchEnd();
+    // Traversal: a ledge in front turns the jump key into a vault or a mantle.
+    bool TryTraversal();
+    void TickTraversal(float DeltaSeconds);
+    bool CapsuleFitsAt(const FVector& Location) const;
     void Interact();
     void TogglePause();
     void Restart();
     void Quit();
     void UpdateFocus();
     bool IsPaused() const;
+    virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+    virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> Boom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Body;
@@ -50,6 +58,17 @@ private:
     // individual target's own range check, so those stay authoritative.
     UPROPERTY(EditAnywhere, Category = "Interaction") float InteractionReach = 400.f;
     UPROPERTY(EditAnywhere, Category = "Interaction") float InteractionHalfAngle = 55.f;
+    // Ledges below MinLedgeHeight are simply walked over; above MaxLedgeHeight the
+    // character has nothing to pull itself up on and the jump stays a plain jump.
+    UPROPERTY(EditAnywhere, Category = "Traversal") float MinLedgeHeight = 40.f;
+    UPROPERTY(EditAnywhere, Category = "Traversal") float MaxLedgeHeight = 170.f;
+    UPROPERTY(EditAnywhere, Category = "Traversal") float TraversalReach = 75.f;
+    bool bTraversing = false;
+    bool bTraversalIsVault = false;
+    float TraversalAlpha = 0.f;
+    float TraversalDuration = 0.5f;
+    FVector TraversalStart = FVector::ZeroVector;
+    FVector TraversalTarget = FVector::ZeroVector;
     TWeakObjectPtr<AActor> FocusedActor;
     FTransform StartTransform;
 };

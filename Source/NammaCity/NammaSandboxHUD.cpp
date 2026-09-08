@@ -43,7 +43,7 @@ void ANammaSandboxHUD::DrawHUD()
     DrawText(ObjectiveText.ToString(), FLinearColor::White, 36, 62);
     DrawText(FString::Printf(TEXT("Parcel: %s"), Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying ? TEXT("carrying") : TEXT("none")), Gold, 36, 89);
     DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
-    DrawText(TEXT("WASD Move   Mouse Look   Shift Sprint   Space Jump   E Interact   Esc Pause"), FLinearColor::White, 32, H - 45);
+    DrawText(TEXT("WASD Move   Mouse Look   Shift Sprint   Space Jump/Vault   C Crouch   E Interact   Esc Pause"), FLinearColor::White, 32, H - 45);
     DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
     DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
     const FText Prompt = Player->GetInteractionPrompt();
