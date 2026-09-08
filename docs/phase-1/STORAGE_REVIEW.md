@@ -34,3 +34,7 @@ python3 Scripts/check_workstation.py --archive /path/to/Linux_UnrealEngine.zip -
 The checker inspects ZIP metadata without extraction and accounts for the archive already occupying disk. It may also report an unconfigured engine; that remains expected before installation. Freeing these candidates alone is not a guarantee that Unreal will fit. Review the selected archive's exact requirements before installation.
 
 The listed cache deletion is complete and authorized. Further cleanup outside these paths is not assumed. Epic account access and the selected installed-build archive metadata remain necessary to check whether the remaining 45.76 GiB can accommodate installation. No engine download or extraction has started.
+
+## Engine archive inspected
+
+The supplied Unreal 5.8.2 ZIP is 37.08 GiB compressed and 71.68 GiB unpacked. With 45.76 GiB free, the unpacked engine cannot fit. No full download or installation was started. See [capacity check](ENGINE_INSTALL.md). Checking other mounted storage was rejected by automatic approval review because workspace credits are exhausted.
