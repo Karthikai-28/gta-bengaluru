@@ -1,9 +1,9 @@
-#include "NammaDeliveryState.h"
+#include "../NammaDeliveryState.h"
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNammaDeliveryRulesTest, "NammaCity.Delivery.Rules",
-    EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 
 bool FNammaDeliveryRulesTest::RunTest(const FString& Parameters)
 {

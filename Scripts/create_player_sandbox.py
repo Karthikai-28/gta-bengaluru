@@ -79,7 +79,7 @@ def main():
             component.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS if collision else unreal.CollisionEnabled.NO_COLLISION)
             batches[key] = component
         transform = unreal.Transform(location=unreal.Vector(*(v * 100 for v in center)),
-                                     rotation=unreal.Rotator(pitch, 0, 0).quaternion(), scale=unreal.Vector(*size))
+                                     rotation=unreal.Rotator(pitch, 0, 0), scale=unreal.Vector(*size))
         batches[key].add_instance(transform)
     spawn(unreal.PlayerStart, [v * 100 for v in data["spawn"]], "SANDBOX_Start", unreal.Rotator(0, data["spawn_yaw"], 0))
     for pickup, key in [(True, "pickup"), (False, "delivery")]:
