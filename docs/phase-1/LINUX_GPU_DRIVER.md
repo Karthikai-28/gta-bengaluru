@@ -151,11 +151,29 @@ versions rather than a real deny-list hit. The practical consequence is that
 removing `r.WarnOfBadDrivers=0` brings the blocking dialog back even on a
 current driver, so the setting stays until an engine version stops reporting it.
 
-### Open, unrelated to the driver
+### Resolved, unrelated to the driver — 2026-09-08
 
-With the game running, `W`/`A`/`S`/`D` produce no character movement, while
-mouse look, Esc pause and the HUD all work — so input reaches the game and the
-pawn is possessed. The movement bindings are
-`Input->BindAction(Axis(EKeys::W, EKeys::S), ...)` in
-`Source/NammaCity/NammaPlayerCharacter.cpp`. This is a gameplay issue, not a
-driver one, and is not addressed here.
+With the game running, `W`/`A`/`S`/`D`, `Shift`, `Space` and `E` did nothing
+while `Esc`, `R` and `Q` worked, which read as broken keyboard input. It was not
+an input fault. The engine's Enhanced Input debugger
+(`-ExecCmds="showdebug enhancedinput"`) showed the W action reporting
+`Triggered (1.000)` for as long as the key was held, and
+`DisplayAll CharacterMovementComponent MovementMode` reported `MOVE_None`.
+
+The pawn's movement component was inert: no gravity, no walking, no jumping. The
+character sat exactly on the PlayerStart, feet 20 cm above the ground, never
+moving and never falling. Mouse look kept working because rotation is
+controller-side and never touches the movement component, and the three keys
+that did work happen to be the three actions flagged `bTriggerWhenPaused`.
+
+Fixed in `ANammaPlayerCharacter::BeginPlay`, which now corrects the mode and logs
+when it does. Root cause of the `MOVE_None` initialisation on this generated map
+is still unknown — the component reports a valid `CollisionCylinder`, so only the
+mode is wrong. The log line makes a recurrence visible.
+
+Useful for future runtime debugging, since the in-game console key is disabled in
+this build:
+
+```bash
+-ExecCmds="showdebug enhancedinput, DisplayAll CharacterMovementComponent MovementMode"
+```
