@@ -1,4 +1,6 @@
 #include "NammaSandboxHUD.h"
+#include "NammaBicycle.h"
+#include "NammaBicycleMovement.h"
 #include "NammaCityGameModeBase.h"
 #include "NammaPlayerCharacter.h"
 #include "Engine/Canvas.h"
@@ -28,26 +30,46 @@ void ANammaSandboxHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ANammaSandboxHUD::ObjectiveChanged(FText Objective) { ObjectiveText = Objective; }
 
+// Returns true when the player is riding, in which case the walking hints and the
+// interaction crosshair are replaced by the cycle readout.
+bool ANammaSandboxHUD::DrawBicycle(float W, float H)
+{
+    const auto* Bicycle = Cast<ANammaBicycle>(PlayerOwner->GetPawn());
+    if (!Bicycle) return false;
+    const FLinearColor Gold(1.f, 0.76f, 0.3f);
+    DrawRect(FLinearColor(0.02f, 0.04f, 0.055f, 0.9f), 20, H - 128, FMath::Min(W - 40, 900.f), 74);
+    DrawText(Bicycle->GetTelemetryLine().ToString(), Gold, 32, H - 120, nullptr, 1.15f);
+    DrawText(Bicycle->GetGearLine().ToString(), FLinearColor::White, 32, H - 96);
+    DrawText(TEXT("W Pedal   S Rear brake   Space Front brake   A/D Steer/lean   Shift Sprint"
+                  "   Wheel or 1-6 Gears   E Get off   X Bail   Esc Pause"),
+             FLinearColor::White, 32, H - 74);
+    return true;
+}
+
 void ANammaSandboxHUD::DrawHUD()
 {
     Super::DrawHUD();
     if (!Canvas || !PlayerOwner) return;
     const auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
-    const auto* Player = Cast<ANammaPlayerCharacter>(PlayerOwner->GetPawn());
-    if (!Mode || !Player) return;
     const float W = Canvas->SizeX;
     const float H = Canvas->SizeY;
+    const bool bRiding = Mode && DrawBicycle(W, H);
+    const auto* Player = Cast<ANammaPlayerCharacter>(PlayerOwner->GetPawn());
+    if (!Mode || (!Player && !bRiding)) return;
     const FLinearColor Gold(1.f, 0.76f, 0.3f);
     DrawRect(FLinearColor(0.02f, 0.04f, 0.055f, 0.9f), 20, 20, FMath::Min(W - 40, 760.f), 100);
     DrawText(TEXT("NAMMA CITY  /  FIRST DELIVERY"), Gold, 36, 30, nullptr, 1.35f);
     DrawText(ObjectiveText.ToString(), FLinearColor::White, 36, 62);
     DrawText(FString::Printf(TEXT("Parcel: %s"), Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying ? TEXT("carrying") : TEXT("none")), Gold, 36, 89);
-    DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
-    DrawText(TEXT("WASD Move   Mouse Look   Shift Sprint   Space Jump   C Crouch   E Interact   F Grab/Drop   X Ragdoll/Reset   Esc Pause"), FLinearColor::White, 32, H - 45);
-    DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
-    DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
-    const FText Prompt = Player->GetInteractionPrompt();
-    if (!Prompt.IsEmpty()) DrawText(Prompt.ToString(), Gold, W / 2 - 80, H / 2 + 34, nullptr, 1.3f);
+    if (!bRiding)
+    {
+        DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
+        DrawText(TEXT("WASD Move   Mouse Look   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab/Drop   X Ragdoll/Reset   Esc Pause"), FLinearColor::White, 32, H - 45);
+        DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
+        DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
+        const FText Prompt = Player->GetInteractionPrompt();
+        if (!Prompt.IsEmpty()) DrawText(Prompt.ToString(), Gold, W / 2 - 80, H / 2 + 34, nullptr, 1.3f);
+    }
     for (const auto& Station : Stations)
     {
         const auto* It = Station.Get();
@@ -55,7 +77,8 @@ void ANammaSandboxHUD::DrawHUD()
         const bool Active = (It->bPickup && Mode->GetDeliveryStage() == ENammaDeliveryStage::AwaitingPickup)
             || (!It->bPickup && Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying);
         if (!Active) continue;
-        const float Metres = FVector::Distance(Player->GetActorLocation(), It->GetActorLocation()) / 100.f;
+        const float Metres = FVector::Distance(PlayerOwner->GetPawn()->GetActorLocation(),
+                                               It->GetActorLocation()) / 100.f;
         FVector2D Screen;
         if (PlayerOwner->ProjectWorldLocationToScreen(It->GetActorLocation() + FVector(0, 0, 220), Screen)
             && Screen.X > 20 && Screen.X < W - 150 && Screen.Y > 130 && Screen.Y < H - 80)

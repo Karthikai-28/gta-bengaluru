@@ -1,4 +1,5 @@
 #include "NammaPlayerCharacter.h"
+#include "NammaBicycle.h"
 #include "NammaHumanAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -131,6 +132,10 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
     auto* Input = CastChecked<UEnhancedInputComponent>(PlayerInputComponent);
+    if (auto* PC = Cast<APlayerController>(Controller))
+        if (auto* LP = PC->GetLocalPlayer())
+            if (auto* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+                if (Mapping) Subsystem->RemoveMappingContext(Mapping);
     Mapping = NewObject<UInputMappingContext>(this);
     Actions.Reset();
     auto Axis = [this](const FKey& Positive, const FKey& Negative) {
@@ -183,19 +188,19 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 bool ANammaPlayerCharacter::IsPaused() const { return UGameplayStatics::IsGamePaused(this); }
 void ANammaPlayerCharacter::Forward(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bRagdoll && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
 }
 void ANammaPlayerCharacter::Right(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bRagdoll && !bTraversing) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
 }
 void ANammaPlayerCharacter::LookYaw(const FInputActionValue& V) { if (!IsPaused()) AddControllerYawInput(V.Get<float>()); }
 void ANammaPlayerCharacter::LookPitch(const FInputActionValue& V) { if (!IsPaused()) AddControllerPitchInput(-V.Get<float>()); }
 void ANammaPlayerCharacter::SprintStart() { if (!IsPaused()) GetCharacterMovement()->MaxWalkSpeed = 600; }
 void ANammaPlayerCharacter::SprintEnd() { GetCharacterMovement()->MaxWalkSpeed = 350; }
-void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !TryTraversal()) Jump(); }
+void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !IsRiding() && !TryTraversal()) Jump(); }
 void ANammaPlayerCharacter::JumpEnd() { StopJumping(); }
-void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bRagdoll && !bTraversing) Crouch(); }
+void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) Crouch(); }
 void ANammaPlayerCharacter::CrouchEnd() { UnCrouch(); }
 
 // ACharacter preserves mesh height relative to the floor when the capsule shrinks.
@@ -342,6 +347,7 @@ void ANammaPlayerCharacter::Quit()
 }
 void ANammaPlayerCharacter::RecoverToStart()
 {
+    if (ANammaBicycle* Bicycle = Riding.Get()) Bicycle->Dismount(false);
     ReleaseObject();
     if (bRagdoll)
     {
@@ -375,11 +381,12 @@ void ANammaPlayerCharacter::Tick(float DeltaSeconds)
         if (GetMesh()->GetComponentLocation().Z < -500.f) RecoverToStart();
         return;
     }
+    const auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
+    Parcel->SetVisibility(Mode && Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying);
+    if (IsRiding()) return;
     const FVector P = GetActorLocation();
     if (P.Z < -500 || FMath::Abs(P.X) > 6200 || FMath::Abs(P.Y) > 6200) RecoverToStart();
     UpdateFocus();
-    const auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
-    Parcel->SetVisibility(Mode && Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying);
 }
 void ANammaPlayerCharacter::UpdateFocus()
 {
@@ -427,7 +434,7 @@ FText ANammaPlayerCharacter::GetInteractionPrompt() const
 }
 void ANammaPlayerCharacter::Interact()
 {
-    if (IsPaused() || bRagdoll || bTraversing) return;
+    if (IsPaused() || bRagdoll || bTraversing || IsRiding()) return;
     UpdateFocus();
     if (auto* Target = Cast<INammaInteractable>(FocusedActor.Get())) Target->Interact(this);
 }
@@ -452,7 +459,7 @@ void ANammaPlayerCharacter::ReleaseObject()
 
 void ANammaPlayerCharacter::GrabOrRelease()
 {
-    if (IsPaused() || bRagdoll || bTraversing) return;
+    if (IsPaused() || bRagdoll || bTraversing || IsRiding()) return;
     if (PhysicsHandle->GetGrabbedComponent()) { ReleaseObject(); return; }
     const FVector Start = GetMesh()->GetSocketLocation(TEXT("spine_03"));
     const FVector Direction = GetControlRotation().Vector();
@@ -488,14 +495,19 @@ void ANammaPlayerCharacter::TickHeldObject()
 
 void ANammaPlayerCharacter::ToggleRagdoll()
 {
-    if (IsPaused()) return;
+    if (IsPaused() || IsRiding()) return;
     // Recovery is an explicit safe reset, not a fabricated get-up animation.
     if (bRagdoll) { RecoverToStart(); return; }
-    if (bTraversing || !GetMesh()->GetPhysicsAsset()) return;
+    if (bTraversing) return;
+    EnterRagdoll(GetVelocity());
+}
+
+void ANammaPlayerCharacter::EnterRagdoll(const FVector& Momentum)
+{
+    if (bRagdoll || !GetMesh()->GetPhysicsAsset()) return;
     ReleaseObject();
     SprintEnd();
     StopJumping();
-    const FVector Momentum = GetVelocity();
     UnCrouch();
     bRagdoll = true;
     FocusedActor.Reset();
@@ -506,4 +518,41 @@ void ANammaPlayerCharacter::ToggleRagdoll()
     GetMesh()->SetAllPhysicsLinearVelocity(Momentum);
     Boom->AttachToComponent(GetMesh(), FAttachmentTransformRules::KeepWorldTransform, TEXT("pelvis"));
     Boom->SetRelativeLocation(FVector::ZeroVector);
+}
+
+void ANammaPlayerCharacter::BeginRiding(ANammaBicycle* Bicycle)
+{
+    ReleaseObject();
+    SprintEnd();
+    StopJumping();
+    UnCrouch();
+    bTraversing = false;
+    FocusedActor.Reset();
+    Riding = Bicycle;
+    GetCharacterMovement()->StopMovementImmediately();
+    GetCharacterMovement()->DisableMovement();
+    // The bicycle carries the rider; a second colliding capsule inside its hull would
+    // only fight the wheel traces.
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    if (auto* PC = Cast<APlayerController>(Controller))
+        if (auto* LP = PC->GetLocalPlayer())
+            if (auto* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+                if (Mapping) Subsystem->RemoveMappingContext(Mapping);
+}
+
+void ANammaPlayerCharacter::EndRiding(const FVector& Where, const FVector& Momentum)
+{
+    Riding.Reset();
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    // Detaching keeps the bike's lean and pitch, so put the rider back upright.
+    SetActorRotation(FRotator(0.f, GetActorRotation().Yaw, 0.f));
+    SetActorLocation(Where, false, nullptr, ETeleportType::TeleportPhysics);
+    GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+    if (!Momentum.IsNearlyZero()) EnterRagdoll(Momentum);
+}
+
+bool ANammaPlayerCharacter::GetRidePose(FNammaRidePose& Out) const
+{
+    const ANammaBicycle* Bicycle = Riding.Get();
+    return !bRagdoll && Bicycle && Bicycle->GetRidePose(Out);
 }

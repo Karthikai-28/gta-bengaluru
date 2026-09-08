@@ -60,3 +60,54 @@ def geometry(data):
             t = i / count
             yield box("gold", [start[0] + (end[0] - start[0]) * t,
                                start[1] + (end[1] - start[1]) * t, 0.215], [0.45, 0.45, 0.02], False)
+
+
+# Surfaces the bicycle movement component recognises by material name. Anything else
+# it treats as dry asphalt.
+CYCLE_SURFACES = {"gravel", "wet", "paving", "road", "ground"}
+
+
+def ramp(color, x_low, x_high, y, width, rise, thickness=0.2):
+    """A pitched slab climbing from `x_low` at road level to `x_high` at `rise`.
+
+    Unreal pitches the box about its own centre and a positive pitch raises the +X
+    end, so both the centre height and the sign of the angle are solved from the two
+    end points rather than eyeballed. The low end's top surface lands at z = 0.
+    """
+    import math
+    length = abs(x_high - x_low)
+    angle = math.atan2(rise, length)
+    span = math.hypot(length, rise)
+    centre_z = span / 2 * math.sin(angle) - thickness / 2 * math.cos(angle)
+    return ("Cube", color, True, [(x_low + x_high) / 2, y, centre_z],
+            [span, width, thickness],
+            math.copysign(math.degrees(angle), x_high - x_low))
+
+
+def cycle_features(data):
+    """Bengaluru road-surface cases for the pedal cycle, per PHYSICS_CONVENTIONS.
+
+    Added to the finished street by Scripts/setup_cycle.py rather than folded into
+    geometry(), so the existing generated map keeps its contract and is not rebuilt.
+    """
+    def box(color, center, size, collision=True, pitch=0):
+        return ("Cube", color, collision, center, size, pitch)
+
+    road_y = -25.0
+    # East strip. Painted road/metal cover: the low-grip case section 12 calls out as
+    # dangerous for a leaned two-wheeler.
+    yield box("wet", [34.0, road_y, 0.035], [3.0, 10.0, 0.05])
+    # Two speed breakers, mild and severe.
+    yield box("cream", [37.5, road_y, 0.05], [0.6, 11.0, 0.10])
+    yield box("cream", [41.0, road_y, 0.08], [0.6, 11.0, 0.16])
+    # Resurfaced asphalt either side of an unrepaired hole: the gap is the pothole.
+    yield box("paving", [45.1, road_y, 0.06], [2.2, 11.0, 0.12])
+    yield box("paving", [48.5, road_y, 0.06], [3.0, 11.0, 0.12])
+    # Loose gravel at the far end.
+    yield box("gravel", [52.5, road_y, 0.04], [4.0, 11.0, 0.08])
+
+    # West strip: a 6 per cent climb, a flat span and a matching descent, which is the
+    # flyover gradient case. Clear of the safehouse and of the walking route.
+    yield ramp("paving", -54.0, -46.5, road_y, 8.0, 0.45)   # climb
+    yield box("paving", [-43.0, road_y, 0.35], [7.0, 8.0, 0.2])
+    yield ramp("paving", -32.0, -39.5, road_y, 8.0, 0.45)   # descent, +X end lower

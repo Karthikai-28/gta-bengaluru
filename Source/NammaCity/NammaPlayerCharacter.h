@@ -2,8 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "NammaRidePose.h"
 #include "NammaPlayerCharacter.generated.h"
 
+class ANammaBicycle;
 class UPhysicsHandleComponent;
 class UCameraComponent;
 class USpringArmComponent;
@@ -25,8 +27,17 @@ public:
     void RecoverToStart();
     FText GetInteractionPrompt() const;
     bool GetHandTarget(FVector& WorldTarget) const;
+    // Riding hands the pawn over to the bicycle: this character keeps its mesh and
+    // animation but stops driving itself, and the bicycle possesses the controller.
+    void BeginRiding(ANammaBicycle* Bicycle);
+    void EndRiding(const FVector& Where, const FVector& Momentum);
+    bool IsRiding() const { return Riding.IsValid(); }
+    bool GetRidePose(FNammaRidePose& Out) const;
+    bool CanStandAt(const FVector& Location) const { return CapsuleFitsAt(Location); }
+    void EnterRagdoll(const FVector& Momentum);
 private:
     friend class FNammaHumanWorldTest;
+    friend class FNammaBicycleWorldTest;
     void ToggleRagdoll();
     void GrabOrRelease();
     void ReleaseObject();
@@ -82,5 +93,6 @@ private:
     FVector TraversalStart = FVector::ZeroVector;
     FVector TraversalTarget = FVector::ZeroVector;
     TWeakObjectPtr<AActor> FocusedActor;
+    TWeakObjectPtr<ANammaBicycle> Riding;
     FTransform StartTransform;
 };

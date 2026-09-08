@@ -41,3 +41,5 @@ Reference: [Epic's two-bone IK documentation](https://dev.epicgames.com/document
 `Scripts/build_editor.sh` and `Scripts/test_host.sh` passed. Unreal automation passed `NammaCity.Delivery.Rules` and `NammaCity.Human.PhysicsAndPose` with zero warnings or errors. The latter checks asset loading, native animation integration, skeleton joints, physics constraints, gravity-based jump calculation, grounded crouch with planted feet, finite poses, mass-limited pickup/drop, ragdoll/reset, and fixed-length IK at singular/unreachable targets. It runs an isolated 60 Hz world; this does not establish 30 fps visual quality or validate every slope/ledge.
 
 `Scripts/package_game.sh` completed successfully, including the Linux game build, cook, stage and archive. `Scripts/launch_game.sh` now uses the upgraded package.
+
+Final packaged Vulkan render checked on 2026-09-09: the camera shows the whole mannequin, including both feet. [In-game screenshot](../../media/human-movement-preview.png).
