@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up the Namma City project
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=@PROJECT_ROOT@/Scripts/backup_project.sh

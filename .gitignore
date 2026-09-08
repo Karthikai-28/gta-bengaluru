@@ -1,0 +1,41 @@
+# Unreal generated files
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.idea/
+.vscode/
+*.VC.db
+*.opensdf
+*.sdf
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+
+# User-specific Unreal content
+Content/Developers/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.local
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Graphify output is centralized outside the repository
+graphify-out
+
+# Local build products
+dist/
+artifacts/

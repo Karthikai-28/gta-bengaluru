@@ -1,0 +1,20 @@
+name: Repository validation
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+      - name: Validate project structure and asset naming
+        run: python3 Scripts/validate_repository.py
