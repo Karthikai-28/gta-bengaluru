@@ -69,6 +69,15 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
 void ANammaPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    // The movement component comes up in MOVE_None on this map, which leaves the pawn
+    // inert: no gravity, no walking, no jumping. Mouse look still worked because
+    // rotation is controller-side, which made it look like only some keys were broken.
+    if (auto* Move = GetCharacterMovement(); Move && Move->MovementMode == MOVE_None)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Movement came up in MOVE_None (updated component: %s); forcing MOVE_Walking."),
+            *GetNameSafe(Move->UpdatedComponent));
+        Move->SetMovementMode(MOVE_Walking);
+    }
     StartTransform = GetActorTransform();
     auto ApplyColor = [](UStaticMeshComponent* Part, const TCHAR* Path) {
         if (auto* Material = LoadObject<UMaterialInterface>(nullptr, Path)) Part->SetMaterial(0, Material);
