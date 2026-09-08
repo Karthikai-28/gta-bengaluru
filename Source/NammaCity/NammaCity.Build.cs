@@ -13,7 +13,8 @@ public class NammaCity : ModuleRules
                 "CoreUObject",
                 "Engine",
                 "InputCore",
-                "EnhancedInput"
+                "EnhancedInput",
+                "AnimationCore"
             }
         );
     }

@@ -11,6 +11,7 @@
     }
   ],
   "Plugins": [
+    { "Name": "ControlRig", "Enabled": true },
     {
       "Name": "ModelingToolsEditorMode",
       "Enabled": true,
