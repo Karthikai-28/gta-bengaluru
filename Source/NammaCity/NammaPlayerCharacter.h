@@ -45,6 +45,11 @@ private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Parcel;
     UPROPERTY() TObjectPtr<UInputMappingContext> Mapping;
     UPROPERTY() TArray<TObjectPtr<UInputAction>> Actions;
+    // Interaction is a facing cone, not a crosshair ray: the player only has to be
+    // looking roughly towards a target. Reach is deliberately wider than any
+    // individual target's own range check, so those stay authoritative.
+    UPROPERTY(EditAnywhere, Category = "Interaction") float InteractionReach = 400.f;
+    UPROPERTY(EditAnywhere, Category = "Interaction") float InteractionHalfAngle = 55.f;
     TWeakObjectPtr<AActor> FocusedActor;
     FTransform StartTransform;
 };

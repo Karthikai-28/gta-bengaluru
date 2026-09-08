@@ -4,6 +4,7 @@
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
@@ -210,12 +211,40 @@ void ANammaPlayerCharacter::Tick(float DeltaSeconds)
 void ANammaPlayerCharacter::UpdateFocus()
 {
     FocusedActor.Reset();
-    FHitResult Hit;
-    const FVector Start = Camera->GetComponentLocation();
+    const FVector Origin = GetActorLocation();
+    const FVector Eye = Origin + FVector(0, 0, 60);
+    // Facing comes from where the player is looking, flattened to the horizontal
+    // plane so looking up or down does not narrow the cone.
+    const FVector Facing = FRotationMatrix(FRotator(0, GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X);
+
     FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaInteraction), false, this);
-    if (GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Camera->GetForwardVector() * 1000, ECC_Visibility, Params))
-        if (auto* Target = Cast<INammaInteractable>(Hit.GetActor()))
-            if (Target->CanInteract(this)) FocusedActor = Hit.GetActor();
+    TArray<FOverlapResult> Overlaps;
+    GetWorld()->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, FCollisionObjectQueryParams::AllObjects,
+        FCollisionShape::MakeSphere(InteractionReach), Params);
+
+    // Best candidate is the one closest to straight ahead, so two adjacent targets
+    // resolve predictably instead of by iteration order.
+    float BestDot = FMath::Cos(FMath::DegreesToRadians(InteractionHalfAngle));
+    AActor* Best = nullptr;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* Candidate = Overlap.GetActor();
+        auto* Target = Cast<INammaInteractable>(Candidate);
+        if (!Target || Candidate == Best || !Target->CanInteract(this)) continue;
+        FVector ToTarget = Candidate->GetActorLocation() - Origin;
+        ToTarget.Z = 0;
+        if (!ToTarget.Normalize()) continue;
+        const float Dot = FVector::DotProduct(Facing, ToTarget);
+        if (Dot < BestDot) continue;
+        // Line of sight from the player's own eye, not the camera, so a wall between
+        // the two still blocks while the trailing camera does not.
+        FHitResult Hit;
+        if (GetWorld()->LineTraceSingleByChannel(Hit, Eye, Candidate->GetActorLocation(), ECC_Visibility, Params)
+            && Hit.GetActor() != Candidate) continue;
+        BestDot = Dot;
+        Best = Candidate;
+    }
+    if (Best) FocusedActor = Best;
 }
 FText ANammaPlayerCharacter::GetInteractionPrompt() const
 {
