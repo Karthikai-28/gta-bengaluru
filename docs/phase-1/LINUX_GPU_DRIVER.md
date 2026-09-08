@@ -166,10 +166,20 @@ moving and never falling. Mouse look kept working because rotation is
 controller-side and never touches the movement component, and the three keys
 that did work happen to be the three actions flagged `bTriggerWhenPaused`.
 
-Fixed in `ANammaPlayerCharacter::BeginPlay`, which now corrects the mode and logs
-when it does. Root cause of the `MOVE_None` initialisation on this generated map
-is still unknown — the component reports a valid `CollisionCylinder`, so only the
-mode is wrong. The log line makes a recurrence visible.
+**Root cause, since established.** The character's delivery-restart handler was
+named `Restart()`, which is the exact signature of the virtual `APawn::Restart()`.
+C++ overrides it silently — no `virtual` or `override` keyword and no compiler
+warning — so the engine's possession path
+(`AController::OnPossess` → `DispatchRestart` → `Pawn->Restart()`) dispatched into
+the gameplay handler, which never calls `Super`. `ACharacter::Restart()` and its
+`SetDefaultMovementMode()` therefore never ran, and `MovementMode` stayed at its
+zero-initialised `MOVE_None`; the component has no constructor default for it,
+only for `DefaultLandMovementMode`.
+
+Renaming the handler to `RestartDelivery()` restores the engine's own
+initialisation, and the interim `BeginPlay` correction has been removed rather
+than left to mask it. Beware this class of bug: any method matching an engine
+virtual's signature overrides it silently.
 
 Useful for future runtime debugging, since the in-game console key is disabled in
 this build:
