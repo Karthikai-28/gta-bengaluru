@@ -18,6 +18,7 @@ set -euo pipefail
 MESA_VERSION="${MESA_VERSION:-26.2.2}"
 LIBDRM_VERSION="${LIBDRM_VERSION:-2.4.134}"
 GLSLANG_VERSION="${GLSLANG_VERSION:-16.5.0}"
+SPIRV_TOOLS_VERSION="${SPIRV_TOOLS_VERSION:-v2026.3}"
 PREFIX="${MESA_PREFIX:-$HOME/dev/mesa-26}"
 JOBS="${JOBS:-$(nproc)}"
 WORK_DIR="${WORK_DIR:-${TMPDIR:-/tmp}/mesa-build-$MESA_VERSION}"
@@ -26,15 +27,16 @@ usage() {
     cat <<USAGE
 Usage: $0 [--prefix DIR] [--jobs N] [--work-dir DIR]
 
-Builds libdrm $LIBDRM_VERSION, glslang $GLSLANG_VERSION and Mesa $MESA_VERSION
-(Intel Vulkan driver only) into a private prefix.
+Builds libdrm $LIBDRM_VERSION, glslang $GLSLANG_VERSION, SPIRV-Tools
+$SPIRV_TOOLS_VERSION and Mesa $MESA_VERSION (Intel Vulkan driver only) into a
+private prefix.
 
   --prefix DIR     install destination (default: $PREFIX)
   --jobs N         parallel compile jobs (default: $JOBS)
   --work-dir DIR   source/build scratch space (default: $WORK_DIR)
 
 Override versions with the MESA_VERSION, LIBDRM_VERSION and GLSLANG_VERSION
-environment variables.
+environment variables (SPIRV_TOOLS_VERSION too).
 USAGE
 }
 
@@ -121,16 +123,102 @@ fetch "https://github.com/KhronosGroup/glslang/archive/refs/tags/$GLSLANG_VERSIO
     cmake --install build
 )
 
-echo "==> Mesa $MESA_VERSION"
+echo "==> SPIRV-Tools $SPIRV_TOOLS_VERSION"
+# Mesa 26 needs SPIRV-Tools >= 2024.1 for its CLC pipeline; jammy packages
+# 2022.2. Built statically with PIC so it links into the driver and needs no
+# runtime library path of its own.
+fetch "https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/$SPIRV_TOOLS_VERSION.tar.gz" "spirv-tools-$SPIRV_TOOLS_VERSION.tar.gz"
+SPIRV_TOOLS_DIR="SPIRV-Tools-${SPIRV_TOOLS_VERSION#v}"
+[[ -d "$SPIRV_TOOLS_DIR" ]] || tar xf "spirv-tools-$SPIRV_TOOLS_VERSION.tar.gz"
+# SPIRV-Tools pins the exact SPIRV-Headers commit it was tested against in DEPS;
+# using anything else risks opcode tables that disagree with the tools.
+SPIRV_HEADERS_REV="$(sed -n "s/.*'spirv_headers_revision': *'\([0-9a-f]*\)'.*/\1/p" "$SPIRV_TOOLS_DIR/DEPS" | head -1)"
+if [[ -z "$SPIRV_HEADERS_REV" ]]; then
+    echo "Could not read spirv_headers_revision from $SPIRV_TOOLS_DIR/DEPS" >&2
+    exit 1
+fi
+fetch "https://github.com/KhronosGroup/SPIRV-Headers/archive/$SPIRV_HEADERS_REV.tar.gz" "spirv-headers-$SPIRV_HEADERS_REV.tar.gz"
+if [[ ! -d "$SPIRV_TOOLS_DIR/external/spirv-headers" ]]; then
+    rm -rf "SPIRV-Headers-$SPIRV_HEADERS_REV"
+    tar xf "spirv-headers-$SPIRV_HEADERS_REV.tar.gz"
+    mkdir -p "$SPIRV_TOOLS_DIR/external"
+    mv "SPIRV-Headers-$SPIRV_HEADERS_REV" "$SPIRV_TOOLS_DIR/external/spirv-headers"
+fi
+(
+    cd "$SPIRV_TOOLS_DIR"
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+        -DSPIRV_SKIP_TESTS=ON -DSPIRV_WERROR=OFF \
+        -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    cmake --build build -j "$JOBS"
+    cmake --install build
+)
+
+# Pin the LLVM toolchain. A host often carries several (this one has 11, 14, 15
+# and 20); Meson otherwise picks the newest llvm-config on PATH, and Mesa then
+# demands an LLVMSPIRVLib of the same major version. Ubuntu 22.04 only packages
+# LLVMSPIRVLib for 15, so an unpinned build fails at configure time on a machine
+# that happens to have a newer LLVM installed for something else.
+LLVM_VERSION="${LLVM_VERSION:-15}"
+LLVM_CONFIG="/usr/bin/llvm-config-$LLVM_VERSION"
+if [[ ! -x "$LLVM_CONFIG" ]]; then
+    echo "llvm-config for LLVM $LLVM_VERSION not found at $LLVM_CONFIG" >&2
+    exit 2
+fi
+cat > "$WORK_DIR/llvm-pin.ini" <<PIN
+[binaries]
+llvm-config = '$LLVM_CONFIG'
+PIN
+
+# Mesa 26's Intel backend uses C23 constructs (enums with a fixed underlying
+# type). GCC only accepts those from 13 onwards and Ubuntu 22.04 tops out at 12,
+# so the build needs a Clang. Any Clang from 15 up will do; prefer the newest
+# installed. Only Mesa needs this - libdrm, glslang and SPIRV-Tools build fine
+# with the system GCC.
+if [[ -z "${MESA_CC:-}" ]]; then
+    for candidate in clang-21 clang-20 clang-19 clang-18 clang-17 clang-16 clang-15; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            MESA_CC="$candidate"
+            break
+        fi
+    done
+fi
+MESA_CXX="${MESA_CXX:-${MESA_CC/clang/clang++}}"
+if [[ -z "${MESA_CC:-}" ]] || ! command -v "$MESA_CXX" >/dev/null 2>&1; then
+    echo "No suitable Clang found. Mesa $MESA_VERSION needs Clang >= 15 (C23 enums)." >&2
+    echo "Install one with: sudo apt install clang-15" >&2
+    exit 2
+fi
+
+# Clang locates its C++ runtime through a GCC installation and picks the newest
+# it finds. A host can easily have a newer GCC whose libstdc++ development files
+# are absent (gcc-12 present without libstdc++-12-dev is a common Ubuntu state),
+# and then linking fails with "cannot find -lstdc++". Pin Clang to the newest GCC
+# directory that actually ships libstdc++.so.
+MESA_CLANG_FLAGS=""
+mapfile -t _gcc_dirs < <(printf '%s\n' /usr/lib/gcc/x86_64-linux-gnu/*/ | sort -Vr)
+for _dir in "${_gcc_dirs[@]}"; do
+    [[ -e "${_dir}libstdc++.so" ]] || continue
+    if echo 'int main(){return 0;}' | "$MESA_CXX" --gcc-install-dir="${_dir%/}" -x c++ - -o /dev/null 2>/dev/null; then
+        MESA_CLANG_FLAGS="--gcc-install-dir=${_dir%/}"
+    fi
+    break
+done
+
+echo "==> Mesa $MESA_VERSION (LLVM $LLVM_VERSION, $MESA_CC)"
 fetch "https://archive.mesa3d.org/mesa-$MESA_VERSION.tar.xz" "mesa-$MESA_VERSION.tar.xz"
 [[ -d "mesa-$MESA_VERSION" ]] || tar xf "mesa-$MESA_VERSION.tar.xz"
 (
     cd "mesa-$MESA_VERSION"
     rm -rf build
+    export CC="$MESA_CC" CXX="$MESA_CXX"
+    export CFLAGS="${CFLAGS:-} $MESA_CLANG_FLAGS"
+    export CXXFLAGS="${CXXFLAGS:-} $MESA_CLANG_FLAGS"
+    export LDFLAGS="${LDFLAGS:-} $MESA_CLANG_FLAGS"
     # Vulkan only: Unreal renders through Vulkan on Linux and the desktop keeps
     # using the system OpenGL stack, so GL/EGL/GBM are left out. Ray tracing is
     # disabled because this targets integrated Intel parts without RT hardware.
     "$MESON" setup build --prefix="$PREFIX" --buildtype=release \
+        --native-file "$WORK_DIR/llvm-pin.ini" \
         -Dvulkan-drivers=intel -Dgallium-drivers= -Dplatforms=x11 \
         -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false \
         -Dgles1=disabled -Dgles2=disabled \
