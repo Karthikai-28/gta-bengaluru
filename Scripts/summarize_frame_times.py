@@ -6,6 +6,11 @@ import math
 import sys
 
 
+# UE writes an EVENTS column holding every bookmark for the capture, which is far
+# wider than Python's default 128 KiB field cap and aborts the reader mid-file.
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv")
