@@ -117,5 +117,45 @@ APT packages from step 1 are build-time only and can be removed with
 Upgrading the host to Ubuntu 24.04 and adding the `kisak-mesa` PPA reaches the
 same Mesa system-wide, and is the better long-term answer. It is a release
 upgrade with a reboot, so it is a scheduled task rather than a setup step. Once
-a workstation is on Mesa 25.0.0 or newer, drop `MESA_PREFIX` from `.env` and
-remove `r.WarnOfBadDrivers=0` from `Config/DefaultEngine.ini`.
+a workstation is on Mesa 25.0.0 or newer system-wide, drop `MESA_PREFIX` from
+`.env`. Keep `r.WarnOfBadDrivers=0` — see below.
+
+
+## Verified on this workstation — 2026-09-08
+
+Built and run end to end on Ubuntu 22.04.5, Intel Iris Xe (RPL-P), UE 5.8.2.
+
+| Check | Result |
+|---|---|
+| `Scripts/check_vulkan_driver.sh` | `driverInfo: Mesa 26.2.2`, `local_read: present` |
+| System driver, no `MESA_PREFIX` | still `Mesa 23.2.1` — desktop untouched |
+| Vulkan API reported to the engine | `1.4.354`, up from 1.3 |
+| Adapter name | now `Intel(R) Iris(R) Xe Graphics (RPL-P)` |
+| Standalone game, `L_PlayerSandbox` | loads and renders; the RHI segfault is gone |
+| Mouse look, Esc pause | respond correctly |
+
+The earlier crash in `FVulkanCommandBuffer::BeginDynamicRendering` no longer
+occurs.
+
+### Keep the driver warning suppressed
+
+UE 5.8.2 still logs the driver as deny-listed on Mesa 26.2.2:
+
+```
+LogRHI: Warning: Out of date driver found. Using: '26.2.2' Suggested: '26.0.0'
+```
+
+The only rule in `[GPU_Intel Linux]` is `DriverVersion="<25.0.0"`, which 26.2.2
+does not match, so this appears to be a quirk in how the engine compares Mesa
+versions rather than a real deny-list hit. The practical consequence is that
+removing `r.WarnOfBadDrivers=0` brings the blocking dialog back even on a
+current driver, so the setting stays until an engine version stops reporting it.
+
+### Open, unrelated to the driver
+
+With the game running, `W`/`A`/`S`/`D` produce no character movement, while
+mouse look, Esc pause and the HUD all work — so input reaches the game and the
+pawn is possessed. The movement bindings are
+`Input->BindAction(Axis(EKeys::W, EKeys::S), ...)` in
+`Source/NammaCity/NammaPlayerCharacter.cpp`. This is a gameplay issue, not a
+driver one, and is not addressed here.
