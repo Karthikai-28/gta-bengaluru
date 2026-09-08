@@ -15,7 +15,21 @@
 
 **Exit gate:** clean project builds, launches, packages, and is version controlled.
 
-## Phase 1 — Player sandbox
+## Phase 1A — First Delivery (active)
+
+- Existing i7-1360P / 15 GiB / Intel integrated-GPU machine; 720p/30 profiling target.
+- Stylized 120 × 120 m street block, fixed daylight, six building shells and instanced props.
+- Third-person jog/sprint/jump, camera collision, keyboard/mouse Enhanced Input.
+- Reusable interaction interface, one carried parcel, pickup → delivery → completion → restart.
+- HUD, pause/resume, quit, out-of-bounds recovery.
+- Deterministic scene generator and matching annotated layout.
+- Packaged Linux Development launch and ten-minute route verification.
+
+**Exit gate:** hardware-rendered packaged game completes repeated deliveries; measured p95 ≤33.3 ms at 720p after warm-up. Source and host tests alone do not pass.
+
+See [implementation status](../../../phase-1/STATUS.md) and [playtest](../../../phase-1/PLAYTEST.md).
+
+## Phase 1B — Remaining player sandbox
 
 - Third-person controller
 - Camera system
@@ -62,7 +76,7 @@
 - Traffic graph
 - Pedestrian graph
 
-**Exit gate:** complete 2 × 2 km district streams reliably.
+**Exit gate:** a larger district streams reliably within measured hardware budgets. The 2 × 2 km size is a later ambition, conditional on Phase 1A and incremental scale tests.
 
 ## Phase 4 — Population
 

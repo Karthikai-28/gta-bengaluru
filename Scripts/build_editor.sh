@@ -10,4 +10,4 @@ if [[ ! -x "$BUILD_SCRIPT" ]]; then
     exit 2
 fi
 
-exec "$BUILD_SCRIPT" NammaCityEditor Linux Development "$PROJECT_FILE" -WaitMutex
+exec "$BUILD_SCRIPT" NammaCityEditor Linux Development "$PROJECT_FILE" -WaitMutex -MaxParallelActions=2

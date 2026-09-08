@@ -1,5 +1,9 @@
 # Software Stack
 
+## Active Phase 1A constraints
+
+Use a pinned Epic installed Linux UE5 build, C++, Enhanced Input and Unreal Python on the existing 15 GiB / Intel integrated-GPU machine. Start with primitive-based stylized art, low rendering settings and 720p/30. MetaHumans, motion matching, heavy GIS tooling, and population systems listed below are future options, not startup dependencies. See [workstation setup](UBUNTU_22_04_SETUP.md).
+
 ## Core development
 
 | Need | Recommended tool | Purpose |

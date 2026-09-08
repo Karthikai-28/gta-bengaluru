@@ -1,0 +1,25 @@
+{
+  "size_m": 120,
+  "spawn": [-46, -32, 1.1],
+  "spawn_yaw": 0,
+  "pickup": [-15, -32, 0.6],
+  "delivery": [32, 20, 0.6],
+  "route": [[-46, -32], [-15, -32], [10, -32], [10, -10], [32, -10], [32, 20]],
+  "buildings": [
+    {"name": "SAFEHOUSE", "center": [-46, -45], "size": [15, 16, 9], "color": "terracotta"},
+    {"name": "NAMMA TEA", "center": [-15, -43], "size": [18, 12, 6], "color": "ochre"},
+    {"name": "CYCLE REPAIRS", "center": [14, -46], "size": [20, 16, 8], "color": "teal"},
+    {"name": "CORNER STORES", "center": [45, 20], "size": [16, 20, 7], "color": "ochre"},
+    {"name": "FLOWER HOUSE", "center": [-39, 10], "size": [20, 22, 10], "color": "teal"},
+    {"name": "MARKET HALL", "center": [4, 38], "size": [28, 14, 9], "color": "terracotta"}
+  ],
+  "trees": [[-55, -17], [-52, 35], [-24, 31], [-15, 10], [0, 8], [22, 9], [46, -12], [51, 45], [22, 49]],
+  "palette": {
+    "ground": [0.20, 0.27, 0.22], "road": [0.09, 0.12, 0.14],
+    "paving": [0.60, 0.57, 0.47], "terracotta": [0.70, 0.27, 0.16],
+    "ochre": [0.93, 0.58, 0.16], "teal": [0.12, 0.42, 0.43],
+    "cream": [0.86, 0.80, 0.63], "dark": [0.035, 0.06, 0.07],
+    "leaf": [0.19, 0.43, 0.22], "trunk": [0.25, 0.13, 0.07],
+    "gold": [1.0, 0.72, 0.15]
+  }
+}

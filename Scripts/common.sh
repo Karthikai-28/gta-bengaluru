@@ -15,7 +15,7 @@ fi
 
 require_unreal() {
     if [[ -z "${UE_ROOT:-}" ]]; then
-        echo "UE_ROOT is not set. Copy .env.example to .env and set the engine path." >&2
+        echo "UE_ROOT is not set. Run python3 Scripts/configure_engine.py /absolute/engine/path." >&2
         exit 2
     fi
 
@@ -24,4 +24,5 @@ require_unreal() {
         echo "UE_ROOT does not contain an Engine directory: $UE_ROOT" >&2
         exit 2
     fi
+    python3 "$PROJECT_ROOT/Scripts/configure_engine.py" "$UE_ROOT" --check
 }

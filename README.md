@@ -1,14 +1,27 @@
 # Namma City
 
-Namma City is an original Bengaluru-inspired open-world action game. The current goal is a polished 2 × 2 km vertical slice before any city-scale expansion.
+An original Bengaluru-inspired Unreal game. The active milestone is **Phase 1A: First Delivery** — a stylized 120 × 120 m third-person street block, targeting **720p / 30 fps on the existing i7-1360P / 15 GiB / Intel integrated-GPU machine**. The 2 × 2 km district is a later, profiling-gated ambition.
 
-## Phase 0 quick start
+[View the annotated starting point](docs/phase-1/starting-point.svg) · [Implementation and verification status](docs/phase-1/STATUS.md) · [Workstation constraints](docs/performance/BASELINE.md)
 
-1. Install Unreal Engine 5 outside this repository.
-2. Copy `.env.example` to `.env` and set `UE_ROOT`.
-3. Run `git lfs install` once on the workstation.
-4. Run `python3 Scripts/validate_repository.py`.
-5. Run `Scripts/create_smoke_test_map.sh` to generate the initial level.
-6. Run `Scripts/build_editor.sh` and then `Scripts/launch_editor.sh`.
+![Concept layout, not an engine capture](docs/phase-1/starting-point.svg)
 
-The complete design documentation starts at [docs/namma-city/docs/README.md](docs/namma-city/docs/README.md). Phase 0 status and machine-specific blockers are tracked in [docs/phase-0/STATUS.md](docs/phase-0/STATUS.md).
+## Run the first playable
+
+The code and generators are present. **No Unreal build or gameplay run has been verified yet.** Engine installation, storage, and desktop Vulkan access remain prerequisites.
+
+1. Follow [workstation setup](docs/namma-city/docs/software/UBUNTU_22_04_SETUP.md), review [storage candidates](docs/phase-1/STORAGE_REVIEW.md), and install Epic's precompiled Linux UE5 build outside the repo.
+2. Run `python3 Scripts/configure_engine.py /absolute/path/to/UnrealEngine` to write local `.env` and the actual version pin. Commit `Config/UnrealVersion.json` once selected; never commit `.env`.
+3. Run `Scripts/test_host.sh` for engine-independent checks.
+4. Run `Scripts/build_editor.sh` **before** either generator; the sandbox requires the compiled C++ classes.
+5. Run `Scripts/create_smoke_test_map.sh` and `Scripts/create_player_sandbox.sh`.
+6. Run `Scripts/launch_editor.sh` and use Play, or run `Scripts/build_game.sh`, `Scripts/package_game.sh`, then `Scripts/launch_game.sh` for the standalone game.
+
+WASD moves, mouse looks, Shift sprints, Space jumps, E interacts with the counter under the crosshair, and Escape pauses. R restarts from pause or completion; Q quits from pause. Follow the gold trail from the safehouse to Namma Tea, through Market Court, and on to Corner Stores. The parked auto-rickshaw is scenery.
+
+## Project references
+
+- [Phase 0 status](docs/phase-0/STATUS.md)
+- [Phase 1A acceptance checklist](docs/phase-1/PLAYTEST.md)
+- [Full design documentation](docs/namma-city/docs/README.md) — future systems are design intent, not implemented gameplay.
+- [Graphify knowledge graph](graphify-out/graph.html) — centralized outside the repo; use [implementation status](docs/phase-1/STATUS.md) to distinguish code from plans.

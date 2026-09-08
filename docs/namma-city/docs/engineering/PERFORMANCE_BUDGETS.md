@@ -4,7 +4,11 @@ Set budgets early; revise after profiling.
 
 ## Initial PC target
 
-Choose one development target such as 1080p/60 fps on your actual machine and measure everything against it.
+Active target: **1280 × 720 / 30 fps** on Ubuntu 22.04, i7-1360P, 15 GiB usable RAM and Intel integrated graphics. First scene: 120 × 120 m; no population simulation. 1080p/60 is a future stretch target, not the current gate.
+
+Use the [authoritative workstation baseline](../../../performance/BASELINE.md) and [Phase 1A capture procedure](../../../phase-1/PLAYTEST.md). Target uncapped capture p95 ≤33.3 ms for ten measured minutes after warm-up; shipped play defaults to a 30 fps cap. Initial packaged RSS envelope: 3 GiB, subject to measurement.
+
+Low scalability; SM5 Vulkan; no Lumen, Nanite, virtual shadow maps, mesh distance fields or expensive post-processing. Use fixed daylight, shared materials and instanced props. All performance remains unmeasured until a hardware-rendered package runs.
 
 ## CPU priorities
 
@@ -28,7 +32,7 @@ Choose one development target such as 1080p/60 fps on your actual machine and me
 - Async asset loading
 - Avoid per-frame Blueprint loops over large actor arrays
 
-## Benchmark route
+## Later full-district benchmark route
 
 Create a deterministic route through:
 

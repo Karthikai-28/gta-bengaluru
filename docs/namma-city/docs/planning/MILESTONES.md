@@ -3,8 +3,11 @@
 ## M0 — Engine Ready
 Packaged blank project runs on Ubuntu.
 
-## M1 — Player Ready
-Movement and interaction feel responsive in a greybox.
+## M1A — First Delivery (active)
+Packaged 120 × 120 m stylized block runs on the existing machine. Movement, camera collision, pickup/delivery, pause and restart pass a ten-minute route test at 720p, with p95 ≤33.3 ms after warm-up. See [actual verification status](../../../phase-1/STATUS.md).
+
+## M1B — Player Ready
+Remaining Phase 1 mechanics and gamepad controls feel responsive. M1A alone does not complete the original full player scope.
 
 ## M2 — Driving Ready
 Car, motorcycle, and auto-rickshaw have distinct handling.

@@ -11,6 +11,8 @@ if [[ ! -x "$EDITOR" ]]; then
     exit 2
 fi
 
-exec "$EDITOR" "$PROJECT_FILE" \
-    -ExecutePythonScript="$GENERATOR" \
+"$EDITOR" "$PROJECT_FILE" -run=pythonscript \
+    -script="$GENERATOR" \
     -unattended -nop4 -nosplash -NullRHI -stdout -FullStdOutLogOutput
+
+[[ -f "$PROJECT_ROOT/Content/NammaCity/Maps/L_SmokeTest.umap" ]] || { echo "Smoke map generation failed." >&2; exit 1; }

@@ -4,6 +4,10 @@ An original open-world action game inspired by Bengaluru's culture, streets, tra
 
 > Goal: build a polished, scalable open-world game without copying GTA assets, names, characters, missions, UI, branding, or proprietary systems.
 
+## Current implementation
+
+[Phase 1A: First Delivery](../../phase-1/STATUS.md) is the active source milestone: a 120 × 120 m stylized block targeting 720p/30 on the existing machine. Engine compile, launch and profiling remain unverified. The broader systems below describe future design intent.
+
 ## Development principle
 
 Do **not** start by building all of Bengaluru. Build a highly polished vertical slice first: one compact district with walking, driving, traffic, NPCs, combat, police response, missions, weather, UI, save/load, and a small story arc.

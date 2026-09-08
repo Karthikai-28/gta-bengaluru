@@ -16,5 +16,5 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
-      - name: Validate project structure and asset naming
-        run: python3 Scripts/validate_repository.py
+      - name: Validate repository, delivery rules and sandbox layout
+        run: Scripts/test_host.sh

@@ -2,7 +2,9 @@
 
 ## Size
 
-Approx. 2 × 2 km compressed central-Bengaluru-inspired district.
+Active Phase 1A: **120 × 120 m** stylized block. Safehouse Lane → Namma Tea pickup → Market Court → Corner Stores delivery. See [the shared-layout concept](../../../phase-1/starting-point.svg).
+
+The approximately 2 × 2 km compressed district below is a later ambition, gated on hardware profiling. These zone and gameplay-location lists are future design, not requirements for the first playable.
 
 ## Required zones
 
