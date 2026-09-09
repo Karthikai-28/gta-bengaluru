@@ -347,7 +347,7 @@ void ANammaPlayerCharacter::Quit()
 }
 void ANammaPlayerCharacter::RecoverToStart()
 {
-    if (ANammaBicycle* Bicycle = Riding.Get()) Bicycle->Dismount(false);
+    if (ANammaBicycle* Bicycle = Riding.Get()) Bicycle->Dismount(true);
     ReleaseObject();
     if (bRagdoll)
     {
@@ -540,7 +540,7 @@ void ANammaPlayerCharacter::BeginRiding(ANammaBicycle* Bicycle)
                 if (Mapping) Subsystem->RemoveMappingContext(Mapping);
 }
 
-void ANammaPlayerCharacter::EndRiding(const FVector& Where, const FVector& Momentum)
+void ANammaPlayerCharacter::EndRiding(const FVector& Where, const FVector& Momentum, bool bThrown)
 {
     Riding.Reset();
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -548,7 +548,7 @@ void ANammaPlayerCharacter::EndRiding(const FVector& Where, const FVector& Momen
     SetActorRotation(FRotator(0.f, GetActorRotation().Yaw, 0.f));
     SetActorLocation(Where, false, nullptr, ETeleportType::TeleportPhysics);
     GetCharacterMovement()->SetMovementMode(MOVE_Falling);
-    if (!Momentum.IsNearlyZero()) EnterRagdoll(Momentum);
+    if (bThrown || !Momentum.IsNearlyZero()) EnterRagdoll(Momentum);
 }
 
 bool ANammaPlayerCharacter::GetRidePose(FNammaRidePose& Out) const

@@ -30,9 +30,10 @@ public:
     // Riding hands the pawn over to the bicycle: this character keeps its mesh and
     // animation but stops driving itself, and the bicycle possesses the controller.
     void BeginRiding(ANammaBicycle* Bicycle);
-    void EndRiding(const FVector& Where, const FVector& Momentum);
+    void EndRiding(const FVector& Where, const FVector& Momentum, bool bThrown = false);
     bool IsRiding() const { return Riding.IsValid(); }
     bool GetRidePose(FNammaRidePose& Out) const;
+    bool CanBeginRiding() const { return !bRagdoll && !bTraversing && !bIsCrouched && !IsRiding() && !IsPaused(); }
     bool CanStandAt(const FVector& Location) const { return CapsuleFitsAt(Location); }
     void EnterRagdoll(const FVector& Momentum);
 private:

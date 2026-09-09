@@ -11,7 +11,9 @@ struct FNammaRidePose
     FVector PedalRight = FVector::ZeroVector;
     FVector GripLeft = FVector::ZeroVector;
     FVector GripRight = FVector::ZeroVector;
+    FVector FootDownTarget = FVector::ZeroVector;
     FVector Saddle = FVector::ZeroVector;
+    float Weight = 1.f;
     float TorsoPitchDegrees = 0.f;
     bool bFootDown = false;
 };

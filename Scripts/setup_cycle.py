@@ -42,7 +42,31 @@ def material(name, rgb):
     return asset
 
 
+def prepare_cycle_materials():
+    path = "/Game/NammaCity/Materials/Cycle/M_CyclePaint"
+    if not unreal.EditorAssetLibrary.does_asset_exist(path):
+        paint = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "M_CyclePaint", "/Game/NammaCity/Materials/Cycle", unreal.Material, unreal.MaterialFactoryNew())
+        color = unreal.MaterialEditingLibrary.create_material_expression(paint, unreal.MaterialExpressionVectorParameter)
+        color.set_editor_property("parameter_name", "FrameColor")
+        color.set_editor_property("default_value", unreal.LinearColor(0.05, 0.4, 0.6))
+        unreal.MaterialEditingLibrary.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+        for value, prop in [(0.25, unreal.MaterialProperty.MP_METALLIC), (0.32, unreal.MaterialProperty.MP_ROUGHNESS)]:
+            scalar = unreal.MaterialEditingLibrary.create_material_expression(paint, unreal.MaterialExpressionConstant)
+            scalar.set_editor_property("r", value)
+            unreal.MaterialEditingLibrary.connect_material_property(scalar, "", prop)
+        unreal.MaterialEditingLibrary.recompile_material(paint)
+        assert unreal.EditorAssetLibrary.save_loaded_asset(paint)
+    # Wheel rings and the chain are instanced. Cook the correct material permutations.
+    for name in ["dark", "cream", "gold"]:
+        mat = unreal.load_asset(f"{MATERIAL_ROOT}/M_Sandbox_{name}")
+        mat.set_editor_property("used_with_instanced_static_meshes", True)
+        unreal.MaterialEditingLibrary.recompile_material(mat)
+        assert unreal.EditorAssetLibrary.save_loaded_asset(mat)
+
+
 def main():
+    prepare_cycle_materials()
     bicycle_cls = unreal.load_class(None, "/Script/NammaCity.NammaBicycle")
     prop_cls = unreal.load_class(None, "/Script/NammaCity.NammaInstancedProp")
     if not bicycle_cls or not prop_cls:
@@ -65,10 +89,16 @@ def main():
         cycle.set_actor_label(CYCLE_LABEL)
         unreal.log(f"Placed {CYCLE_LABEL} outside CYCLE REPAIRS at {data['cycle']}")
 
+    if "CYCLE_Start_Rideable" not in labels:
+        starter = actors.spawn_actor_from_class(bicycle_cls, unreal.Vector(-4410, -3370, 95), unreal.Rotator(0, 0, 0))
+        if not starter:
+            raise RuntimeError("Failed to place starter cycle")
+        starter.set_actor_label("CYCLE_Start_Rideable")
+
     # One instanced actor per (shape, colour, collision), so a surface is a single
     # tagged actor the wheel traces can classify.
     batches = {}
-    for shape, color, collision, center, size, pitch in cycle_features(data):
+    for shape, color, collision, center, size, pitch, yaw in cycle_features(data):
         key = (shape, color, collision)
         label = f"{STRIP_PREFIX}{shape}_{color}_{collision}"
         if label in labels:
@@ -86,9 +116,12 @@ def main():
                 unreal.CollisionEnabled.QUERY_AND_PHYSICS if collision
                 else unreal.CollisionEnabled.NO_COLLISION)
             batches[key] = component
+        # Unreal's Python Rotator is (roll, pitch, yaw), so name them; passing
+        # pitch and yaw in order silently rolls the instance instead.
         batches[key].add_instance(unreal.Transform(
             location=unreal.Vector(*(v * 100 for v in center)),
-            rotation=unreal.Rotator(pitch, 0, 0), scale=unreal.Vector(*size)))
+            rotation=unreal.Rotator(pitch=pitch, yaw=yaw, roll=0),
+            scale=unreal.Vector(*size)))
 
     if not unreal.EditorLevelLibrary.save_current_level():
         raise RuntimeError("Could not save the sandbox map")

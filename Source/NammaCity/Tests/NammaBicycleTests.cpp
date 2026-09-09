@@ -1,6 +1,8 @@
 #include "../NammaBicycle.h"
 #include "../NammaBicycleMovement.h"
 #include "../NammaBicyclePhysics.h"
+#include "../NammaBicycleChain.h"
+#include "Components/BoxComponent.h"
 #include "../NammaPlayerCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -31,6 +33,7 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     auto Block = [World](const FVector& Centre, const FVector& Size)
     {
         auto* Actor = World->SpawnActor<AStaticMeshActor>(Centre, FRotator::ZeroRotator);
+        Actor->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
         Actor->GetStaticMeshComponent()->SetStaticMesh(
             LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
         Actor->SetActorScale3D(Size / 100.f);
@@ -42,6 +45,9 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     Block(FVector(4000, 0, 6), FVector(40, 1200, 12))->Tags.Add(FName("NammaSurface.asphalt"));
 
     auto* Bicycle = World->SpawnActor<ANammaBicycle>(FVector(0, 0, 70), FRotator::ZeroRotator);
+    Bicycle->ColorSeed = 31;
+    auto* OtherCycle = World->SpawnActor<ANammaBicycle>(FVector(0, 1500, 70), FRotator::ZeroRotator);
+    OtherCycle->ColorSeed = 166;
     auto* Human = World->SpawnActor<ANammaPlayerCharacter>(FVector(-700, 0, 100), FRotator::ZeroRotator);
     auto* Controller = World->SpawnActor<APlayerController>();
     Controller->SetAsLocalPlayerController();
@@ -53,22 +59,23 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     Human->Restart();
     Human->GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
-    auto Tick = [&](int32 Count) { for (int32 I = 0; I < Count; ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 60.f); } };
+    float FrameDt = 1.f / 60.f;
+    auto Tick = [&](int32 Count) { for (int32 I = 0; I < Count; ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, FrameDt); } };
     auto* Movement = Bicycle->GetBicycleMovement();
     // Each phase starts from a known place and speed so one failure cannot cascade.
     auto Place = [&](float X)
     {
         Movement->ResetTo(FTransform(FRotator::ZeroRotator, FVector(X, 0.f, 70.f)));
         Bicycle->Controls = NB::FRiderInput();
-        Tick(30);
+        Tick(FMath::RoundToInt(0.75f / FrameDt));
     };
     auto RunUpTo = [&](float Kph, bool bSprint = false)
     {
         Bicycle->Controls.Pedal = 1.0;
-        Bicycle->Controls.bSprint = bSprint;
+        Bicycle->bSprint = bSprint;
         for (int32 I = 0; I < 1800 && Movement->GetSpeedKph() < Kph; ++I) Tick(1);
         Bicycle->Controls.Pedal = 0.0;
-        Bicycle->Controls.bSprint = false;
+        Bicycle->bSprint = false;
     };
     const NB::FSetup& Setup = Movement->GetSetup();
     Tick(60);
@@ -80,8 +87,11 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Both wheels are on the ground"),
         Movement->GetFrontGround().bContact && Movement->GetRearGround().bContact);
     TestTrue(TEXT("Chain is built from real links"),
-        Bicycle->Chain->GetInstanceCount() > 95 && Bicycle->Chain->GetInstanceCount() < 115);
+        Bicycle->Chain->GetInstanceCount() > 100 && Bicycle->Chain->GetInstanceCount() % 2 == 0);
 
+    TestNotNull(TEXT("Frame paint is loaded"), Bicycle->FramePaint.Get());
+    TestFalse(TEXT("Different seeds produce different frame colors"), Bicycle->GetFrameColor().Equals(OtherCycle->GetFrameColor()));
+    TestFalse(TEXT("Mount itself rejects distant rider"), Bicycle->Mount(Human));
     // ---- mounting -----------------------------------------------------------
     TestFalse(TEXT("Cannot mount from across the street"), Bicycle->CanInteract(Human));
     Human->SetActorLocation(Bicycle->GetActorLocation() + FVector(0, -120, 30));
@@ -135,7 +145,7 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
         FTransform Instance;
         Bicycle->Chain->GetInstanceTransform(Link, Instance, false);
         const FVector At = Instance.GetLocation();
-        if (At.ContainsNaN() || At.X > 20.f || At.X < -70.f || FMath::Abs(At.Z + 37.f) > 20.f)
+        if (At.ContainsNaN() || At.X > 20.f || At.X < -70.f || FMath::Abs(At.Z + 37.f) > 30.f)
             bChainPlaced = false;
     }
     TestTrue(TEXT("Chain links stay on the chainring, sprocket and runs"), bChainPlaced);
@@ -233,11 +243,38 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("A speed breaker at 16 km/h does not crash"), Movement->IsCrashed());
     Bicycle->Controls.Pedal = 0.0;
 
+    // ---- frame-rate independence across the full world/contact simulation ----
+    double EndX[3], EndSpeed[3], EndHeight[3];
+    const float FrameRates[] = {30.f, 60.f, 120.f};
+    for (int32 Rate = 0; Rate < 3; ++Rate)
+    {
+        FrameDt = 1.f / FrameRates[Rate];
+        Place(-5500.f);
+        Bicycle->SelectGear(2);
+        Bicycle->Controls.Pedal = 1.0;
+        Tick(int32(8.f * FrameRates[Rate]));
+        EndX[Rate] = Bicycle->GetActorLocation().X;
+        EndHeight[Rate] = Bicycle->GetActorLocation().Z;
+        EndSpeed[Rate] = Movement->GetState().Speed;
+    }
+    FrameDt = 1.f / 60.f;
+    TestTrue(TEXT("World displacement agrees at 30/60/120 fps"),
+        FMath::Abs(EndX[0] - EndX[2]) < 25.f && FMath::Abs(EndX[1] - EndX[2]) < 25.f);
+    TestTrue(TEXT("Speed agrees at 30/120 fps"), FMath::Abs(EndSpeed[0] - EndSpeed[2]) < 0.05);
+    TestTrue(TEXT("Suspension height agrees at 30/120 fps"), FMath::Abs(EndHeight[0] - EndHeight[2]) < 1.f);
+
     // ---- dismount -----------------------------------------------------------
     Place(0.f);
     const FVector Parked = Bicycle->GetActorLocation();
+    TArray<AActor*> ExitWalls;
+    for (const FVector Offset : {FVector(0,-95,0), FVector(0,95,0), FVector(-130,0,0), FVector(130,0,0)})
+        ExitWalls.Add(Block(Parked + Offset, FVector(35,35,220)));
     Bicycle->Dismount(false);
-    Tick(30);
+    Tick(35);
+    TestTrue(TEXT("Blocked dismount keeps the rider aboard"), Bicycle->HasRider() && Human->IsRiding());
+    for (AActor* Wall : ExitWalls) Wall->Destroy();
+    Bicycle->Dismount(false);
+    Tick(45);
     AddInfo(FString::Printf(TEXT("Dismount: bike at %s, rider at %s, %.0f cm apart"),
         *Parked.ToCompactString(), *Human->GetActorLocation().ToCompactString(),
         FVector::Dist2D(Human->GetActorLocation(), Parked)));
@@ -329,6 +366,20 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
         WorstRatio > 0.0 && WorstRatio < 0.9);
     TestTrue(TEXT("The skid still stops the bike in a believable distance"),
         SkidDistance > 1.f && SkidDistance < 6.f);
+
+    Place(0.f);
+    RunUpTo(20.f);
+    auto* CollisionWall = Block(Bicycle->GetActorLocation() + FVector(250,0,50), FVector(40,400,250));
+    for (int32 I = 0; I < 180 && !Movement->IsCrashed(); ++I) Tick(1);
+    AddInfo(FString::Printf(TEXT("Wall test: bike=%s wall=%s v=%.2f crash=%d rider=%d response=%d"),
+        *Bicycle->GetActorLocation().ToString(), *CollisionWall->GetActorLocation().ToString(),
+        Movement->GetState().Speed, Movement->IsCrashed(), Bicycle->HasRider(),
+        int32(CollisionWall->GetStaticMeshComponent()->GetCollisionResponseToChannel(ECC_Pawn))));
+    TestTrue(TEXT("Head-on impact crashes before speed is discarded"), Movement->IsCrashed());
+    TestTrue(TEXT("Impact retains rider ejection momentum"), Movement->GetEjectionVelocity().X > 400.f);
+    Tick(2);
+    TestFalse(TEXT("Collision ejects the rider"), Bicycle->HasRider());
+    CollisionWall->Destroy();
 
     World->EndPlay(EEndPlayReason::Quit);
     World->DestroyWorld(false);

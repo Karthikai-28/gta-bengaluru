@@ -20,14 +20,17 @@ def main():
     def xy(x, y):
         return 418 + x * 5.8, 535 - y * 5.8
     # Ground first, street surfaces second, buildings/props third.
-    for shape, color, collision, center, size, pitch in geometry(data):
+    for shape, color, collision, center, size, pitch, yaw in geometry(data):
         if color == 'ground' or color == 'gold':
             continue
         x, y = xy(center[0], center[1]); w, h = size[0] * 5.8, size[1] * 5.8
         if center[2] > 2 and (color in ('cream', 'dark') or (color == 'teal' and size[2] < 0.5)):
             continue  # Roof plan omits facade details.
-        if shape == 'Sphere' and color == 'leaf':
-            parts.append(f'<circle cx="{x}" cy="{y}" r="{w/2}" fill="{palette[color]}" stroke="#679660" stroke-width="2"/>')
+        if shape in ('Sphere', 'Cylinder'):
+            # Round props read as circles in plan; overlapping crown clumps stack
+            # into one soft canopy the way they do from above.
+            wash = ' fill-opacity=".7"' if color.startswith('leaf') else ''
+            parts.append(f'<circle cx="{x}" cy="{y}" r="{w/2}" fill="{palette[color]}"{wash}/>')
         else:
             parts.append(f'<rect x="{x-w/2}" y="{y-h/2}" width="{w}" height="{h}" fill="{palette[color]}"/>')
     parts.append('<rect x="70" y="187" width="696" height="696" fill="url(#grid)"/>')

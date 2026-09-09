@@ -1,4 +1,7 @@
 #include "NammaBicycle.h"
+#include "NammaBicycleChain.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "NammaBicycleMovement.h"
 #include "NammaCityGameModeBase.h"
 #include "NammaPlayerCharacter.h"
@@ -65,6 +68,7 @@ FVector Ground(const FVector& Point) { return Point - FVector(0.f, 0.f, RootHeig
 ANammaBicycle::ANammaBicycle()
 {
     PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.TickGroup = TG_PostPhysics;
     Hull = CreateDefaultSubobject<UBoxComponent>(TEXT("Hull"));
     // The hull clears the road by 22 cm so kerbs, seams and speed breakers are
     // resolved by the wheel traces instead of snagging a corner of the collision box.
@@ -142,8 +146,8 @@ void ANammaBicycle::BuildBicycle()
     BottomBracketZ = BottomBracket.Z;
     ChainLineY = ChainLine;
     const FVector Chainstay = RearAxle - BottomBracket;
-    ChainstayCos = float(-Chainstay.X / Chainstay.Size2D());
-    ChainstaySin = float(-Chainstay.Z / Chainstay.Size2D());
+    ChainstayCos = float(-Chainstay.X / Chainstay.Size());
+    ChainstaySin = float(-Chainstay.Z / Chainstay.Size());
 
     // ---- frame ----
     for (float Side : {-5.f, 5.f})
@@ -199,15 +203,45 @@ void ANammaBicycle::BuildBicycle()
     // ---- wheels: rim, tyre and spokes, so rotation is visible rather than implied ----
     auto BuildWheel = [&](USceneComponent* Pivot)
     {
-        Disc(Pivot, TEXT("dark"), FVector::ZeroVector, WheelRadius, 4.0f);
-        Disc(Pivot, TEXT("cream"), FVector::ZeroVector, WheelRadius - 3.5f, 4.4f);
-        Disc(Pivot, TEXT("dark"), FVector::ZeroVector, 4.f, 6.f);
-        for (int32 Spoke = 0; Spoke < 4; ++Spoke)
+        // Open wheels, built with batched rim/tyre segments and visible spokes.
+        auto Batch = [&](const TCHAR* Palette)
         {
-            const float Angle = Spoke * 45.f;
-            Piece(Pivot, Cube, TEXT("cream"), FVector::ZeroVector, FRotator(Angle, 0.f, 0.f),
-                  FVector((WheelRadius - 4.f) * 2.f / 100.f, 0.008f, 0.008f));
+            auto* Mesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(
+                FName(*FString::Printf(TEXT("WheelBatch%d"), Serial++)));
+            Mesh->SetupAttachment(Pivot);
+            Mesh->SetStaticMesh(Cube);
+            Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            Mesh->SetCanEverAffectNavigation(false);
+            Mesh->ComponentTags.Add(FName(Palette));
+            WheelParts.Add(Mesh);
+            return Mesh;
+        };
+        auto* Tyre = Batch(TEXT("dark"));
+        auto* Rim = Batch(TEXT("cream"));
+        constexpr int32 Segments = 48;
+        for (int32 Segment = 0; Segment < Segments; ++Segment)
+        {
+            const float Angle = 2.f * PI * (Segment + 0.5f) / Segments;
+            for (int32 Layer = 0; Layer < 2; ++Layer)
+            {
+                const float R = Layer == 0 ? WheelRadius - 1.6f : WheelRadius - 3.5f;
+                const FVector At(R * FMath::Cos(Angle), 0, R * FMath::Sin(Angle));
+                const FVector Tangent(-FMath::Sin(Angle), 0, FMath::Cos(Angle));
+                const FVector Scale(2.f * PI * R / Segments / 100.f * 1.04f,
+                                    Layer == 0 ? 0.035f : 0.019f, Layer == 0 ? 0.032f : 0.012f);
+                (Layer == 0 ? Tyre : Rim)->AddInstance(FTransform(FRotationMatrix::MakeFromX(Tangent).Rotator(), At, Scale));
+            }
         }
+        for (int32 Spoke = 0; Spoke < 20; ++Spoke)
+        {
+            const float A = Spoke * 2.f * PI / 20.f;
+            const FVector End((WheelRadius - 3.5f) * FMath::Cos(A), 0, (WheelRadius - 3.5f) * FMath::Sin(A));
+            Rim->AddInstance(FTransform(FRotationMatrix::MakeFromX(End).Rotator(), End * 0.5f,
+                FVector(End.Size() / 100.f, 0.003f, 0.003f)));
+        }
+        Disc(Pivot, TEXT("dark"), FVector::ZeroVector, 2.8f, 6.f);
+        // One asymmetric reflector makes angular motion clear even at low frame rates.
+        Piece(Pivot, Cube, TEXT("ochre"), FVector(20, 0, 0), FRotator::ZeroRotator, FVector(.04,.025,.08));
     };
     FrontWheel = CreateDefaultSubobject<USceneComponent>(TEXT("FrontWheel"));
     FrontWheel->SetupAttachment(SteerYaw);
@@ -222,9 +256,26 @@ void ANammaBicycle::BuildBicycle()
     Crank = CreateDefaultSubobject<USceneComponent>(TEXT("Crank"));
     Crank->SetupAttachment(VisualRoot);
     Crank->SetRelativeLocation(Ground(BottomBracket));
+    auto Teeth = [&](USceneComponent* Parent, int32 Count, float Y, float Radius)
+    {
+        auto* Mesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(FName(*FString::Printf(TEXT("Teeth%d"), Serial++)));
+        Mesh->SetupAttachment(Parent);
+        Mesh->SetStaticMesh(Cube);
+        Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Mesh->ComponentTags.Add(TEXT("gold"));
+        WheelParts.Add(Mesh);
+        for (int32 Tooth = 0; Tooth < Count; ++Tooth)
+        {
+            const float Angle = Tooth * 2.f * PI / Count;
+            const FVector Radial(FMath::Cos(Angle), 0, FMath::Sin(Angle));
+            Mesh->AddInstance(FTransform(FRotationMatrix::MakeFromX(Radial).Rotator(),
+                Radial * Radius + FVector(0,Y,0), FVector(.006,.004,.005)));
+        }
+    };
     const float CrankArm = float(Movement->GetSetup().CrankLength * 100.0);
     const float RingRadius = float(NB::SprocketRadius(Movement->GetSetup().ChainringTeeth) * 100.0);
-    Disc(Crank, TEXT("gold"), FVector(0.f, ChainLine, 0.f), RingRadius, 0.6f);
+    Disc(Crank, TEXT("gold"), FVector(0.f, ChainLine, 0.f), RingRadius - .35f, 0.4f);
+    Teeth(Crank, Movement->GetSetup().ChainringTeeth, ChainLine, RingRadius);
     for (int32 Side = 0; Side < 2; ++Side)
     {
         const float Sign = Side == 0 ? 1.f : -1.f;
@@ -232,6 +283,8 @@ void ANammaBicycle::BuildBicycle()
         Piece(Crank, Cube, TEXT("dark"), FVector(Sign * CrankArm * 0.5f, Y, 0.f), FRotator::ZeroRotator,
               FVector(CrankArm / 100.f, 0.028f, 0.022f));
     }
+    Tube(Crank, TEXT("dark"), FVector(CrankArm,7,0), FVector(CrankArm,16,0), 1.5f);
+    Tube(Crank, TEXT("dark"), FVector(-CrankArm,-7,0), FVector(-CrankArm,-16,0), 1.5f);
     // Pedals hang from the crank ends and are levelled every frame, as real pedals are.
     PedalRight = CreateDefaultSubobject<USceneComponent>(TEXT("PedalRight"));
     PedalRight->SetupAttachment(Crank);
@@ -249,9 +302,13 @@ void ANammaBicycle::BuildBicycle()
     Cassette->SetRelativeLocation(Ground(RearAxle));
     const NB::FSetup& Setup = Movement->GetSetup();
     for (int32 Sprocket = 0; Sprocket < Setup.GearCount; ++Sprocket)
+    {
+        Teeth(Cassette, Setup.SprocketTeeth[Sprocket], ChainLine + float(NB::SprocketOffset(Setup, Sprocket) * 100.0),
+              float(NB::SprocketRadius(Setup.SprocketTeeth[Sprocket]) * 100.0));
         Disc(Cassette, TEXT("gold"),
              FVector(0.f, ChainLine + float(NB::SprocketOffset(Setup, Sprocket) * 100.0), 0.f),
-             float(NB::SprocketRadius(Setup.SprocketTeeth[Sprocket]) * 100.0), 0.35f);
+             float(NB::SprocketRadius(Setup.SprocketTeeth[Sprocket]) * 100.0) - .35f, 0.35f);
+    }
 
     Chain = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Chain"));
     Chain->SetupAttachment(VisualRoot);
@@ -279,13 +336,24 @@ void ANammaBicycle::BeginPlay()
         if (auto* Material = LoadObject<UMaterialInterface>(nullptr, *Path)) Part->SetMaterial(0, Material);
     };
     for (UStaticMeshComponent* Part : Parts) Paint(Part);
+    for (UInstancedStaticMeshComponent* Part : WheelParts) Paint(Part);
+    if (auto* Base = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Game/NammaCity/Materials/Cycle/M_CyclePaint.M_CyclePaint")))
+    {
+        FRandomStream Random(ColorSeed < 0 ? FMath::Rand() : ColorSeed);
+        FrameColor = FLinearColor::MakeFromHSV8(uint8(Random.RandRange(0, 255)), 205, 230);
+        FramePaint = UMaterialInstanceDynamic::Create(Base, this);
+        FramePaint->SetVectorParameterValue(TEXT("FrameColor"), FrameColor);
+        for (UStaticMeshComponent* Part : Parts)
+            if (Part->ComponentHasTag(TEXT("teal"))) Part->SetMaterial(0, FramePaint);
+    }
     Paint(Chain);
 
     // One instance per real chain link, laid out once and moved every frame.
     const NB::FChain Loop = NB::ChainGeometry(Movement->GetSetup(),
         NB::SprocketRadius(Movement->GetSetup().SprocketTeeth[Gear]),
         NB::SprocketOffset(Movement->GetSetup(), Gear));
-    ChainLinks = FMath::RoundToInt(Loop.LinkCount);
+    ChainLinks = NB::RenderChainLoop(Movement->GetSetup(), Loop).Links;
     Chain->ClearInstances();
     for (int32 Link = 0; Link < ChainLinks; ++Link) Chain->AddInstance(FTransform::Identity);
     UpdateArticulation();
@@ -315,8 +383,8 @@ void ANammaBicycle::Tick(float DeltaSeconds)
         Controls.Pedal = 0.0;
         Controls.Steer = 0.0;
     }
-    Movement->SetRiderInput(Controls);
     UpdateArticulation();
+    TickTransition(DeltaSeconds);
     if (Movement->IsCrashed() && Rider.IsValid()) Dismount(true);
     const FVector Position = GetActorLocation();
     if (Position.Z < -500.f || FMath::Abs(Position.X) > 6200.f || FMath::Abs(Position.Y) > 6200.f)
@@ -332,13 +400,13 @@ void ANammaBicycle::UpdateArticulation()
     auto Spin = [](double Radians) { return FRotator(float(-FMath::RadiansToDegrees(Radians)), 0.f, 0.f); };
     VisualRoot->SetRelativeRotation(FRotator(Movement->GetPitchDegrees(), 0.f, Movement->GetLeanDegrees()));
     SteerYaw->SetRelativeRotation(FRotator(0.f, float(FMath::RadiansToDegrees(State.SteerAngle)), 0.f));
-    FrontWheel->SetRelativeRotation(Spin(State.FrontWheelAngle));
+    FrontWheel->SetRelativeRotation(SteerPivot->GetRelativeRotation().Quaternion().Inverse() * Spin(State.FrontWheelAngle).Quaternion());
     RearWheel->SetRelativeRotation(Spin(State.RearWheelAngle));
-    Cassette->SetRelativeRotation(Spin(State.RearWheelAngle));
-    Crank->SetRelativeRotation(Spin(State.CrankAngle));
+    Cassette->SetRelativeRotation(Spin(State.CassetteAngle));
+    Crank->SetRelativeRotation(FRotator(90.f - float(FMath::RadiansToDegrees(State.CrankAngle)), 0, 0));
     // Cancelling the crank rotation keeps both pedal platforms level, which is what the
     // rider's feet stand on.
-    const FRotator Level(float(FMath::RadiansToDegrees(State.CrankAngle)), 0.f, 0.f);
+    const FRotator Level(float(FMath::RadiansToDegrees(State.CrankAngle)) - 90.f, 0.f, 0.f);
     PedalLeft->SetRelativeRotation(Level);
     PedalRight->SetRelativeRotation(Level);
     UpdateChain();
@@ -351,6 +419,7 @@ void ANammaBicycle::UpdateChain()
     const NB::FChain& Loop = Movement->GetTelemetry().Chain;
     if (Loop.TotalLength <= 0.0) return;
     const double Travel = Movement->GetState().ChainTravel;
+    const auto Path = NB::RenderChainLoop(Setup, Loop);
     // The chain model treats the sprocket as level with the chainring; the real rear
     // axle sits above it, so every link is rotated into the frame by the chainstay angle.
     auto ToFrame = [this](const NB::FChainPoint& Point)
@@ -366,10 +435,10 @@ void ANammaBicycle::UpdateChain()
     for (int32 Link = 0; Link < ChainLinks; ++Link)
     {
         const double Along = Travel + Link * NB::ChainPitch;
-        const FVector Here = ToFrame(NB::ChainPathPoint(Setup, Loop, Along));
-        const FVector Next = ToFrame(NB::ChainPathPoint(Setup, Loop, Along + NB::ChainPitch));
-        Transforms.Emplace(FRotationMatrix::MakeFromX(Next - Here).Rotator(), Here,
-                           FVector(0.011f, 0.006f, 0.009f));
+        const FVector Here = ToFrame(NB::RenderChainPoint(Setup, Path, Along));
+        const FVector Next = ToFrame(NB::RenderChainPoint(Setup, Path, Along + NB::ChainPitch));
+        Transforms.Emplace(FRotationMatrix::MakeFromX(Next - Here).Rotator(), (Here + Next) * 0.5f,
+                           FVector((Next - Here).Size() / 100.f * 0.93f, 0.0045f, 0.006f));
     }
     Chain->BatchUpdateInstancesTransforms(0, Transforms, false, true, false);
 }
@@ -382,7 +451,8 @@ FText ANammaBicycle::GetInteractionPrompt() const
 
 bool ANammaBicycle::CanInteract(const ANammaPlayerCharacter* Player) const
 {
-    return Player && !Rider.IsValid()
+    return Player && Player->CanBeginRiding() && !Rider.IsValid()
+        && FMath::Abs(Movement->GetSpeedKph()) < 5.f
         && FVector::DistSquared(Player->GetActorLocation(), GetActorLocation()) < FMath::Square(260.f);
 }
 
@@ -390,7 +460,11 @@ void ANammaBicycle::Interact(ANammaPlayerCharacter* Player) { Mount(Player); }
 
 bool ANammaBicycle::Mount(ANammaPlayerCharacter* Player)
 {
-    if (!Player || Rider.IsValid()) return false;
+    if (!CanInteract(Player)) return false;
+    FHitResult Obstruction;
+    FCollisionQueryParams MountQuery(SCENE_QUERY_STAT(NammaMount), false, Player);
+    if (GetWorld()->LineTraceSingleByChannel(Obstruction, Player->GetActorLocation(),
+        GetActorLocation(), ECC_Visibility, MountQuery) && Obstruction.GetActor() != this) return false;
     auto* PC = Cast<APlayerController>(Player->GetController());
     if (!PC) return false;
     // Measure before attaching: the mannequin's hips have to land on the saddle.
@@ -399,8 +473,13 @@ bool ANammaBicycle::Mount(ANammaPlayerCharacter* Player)
     Rider = Player;
     RiderController = PC;
     Player->BeginRiding(this);
-    Player->AttachToComponent(RiderMount, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-    Player->SetActorRelativeLocation(FVector(0.f, 0.f, -PelvisAboveActor));
+    Player->AttachToComponent(RiderMount, FAttachmentTransformRules::KeepWorldTransform);
+    TransitionFrom = Player->GetRootComponent()->GetRelativeLocation();
+    SeatOffset = FVector(0.f, 0.f, -PelvisAboveActor);
+    Transition = ETransition::Mounting;
+    TransitionTime = 0.f;
+    Player->GetMesh()->PrimaryComponentTick.TickGroup = TG_PostPhysics;
+    Player->GetMesh()->AddTickPrerequisiteActor(this);
     Player->SetActorRelativeRotation(FRotator::ZeroRotator);
     Movement->SetRiderAboard(true);
     PC->Possess(this);
@@ -426,7 +505,14 @@ bool ANammaBicycle::FindDismountSpot(const ANammaPlayerCharacter* Player, FVecto
                                                   ECC_Visibility, Params))
             continue;
         const FVector Candidate = Floor.ImpactPoint + FVector(0.f, 0.f, HalfHeight + 3.f);
-        if (Player->CanStandAt(Candidate))
+        FHitResult PathHit;
+        const FVector Start = GetActorLocation() + FVector(0, 0, HalfHeight - RootHeight + 3.f);
+        const FCollisionShape Capsule = FCollisionShape::MakeCapsule(
+            Player->GetCapsuleComponent()->GetScaledCapsuleRadius() - 2.f, HalfHeight - 2.f);
+        const bool bPathBlocked = GetWorld()->SweepSingleByChannel(PathHit, Start, Candidate,
+            FQuat::Identity, ECC_Pawn, Capsule, Params);
+        if (Floor.ImpactNormal.Z >= Player->GetCharacterMovement()->GetWalkableFloorZ()
+            && !bPathBlocked && Player->CanStandAt(Candidate))
         {
             Out = Candidate;
             return true;
@@ -435,33 +521,89 @@ bool ANammaBicycle::FindDismountSpot(const ANammaPlayerCharacter* Player, FVecto
     return false;
 }
 
+NammaBicycle::FRiderInput ANammaBicycle::GetAppliedControls() const
+{
+    NB::FRiderInput Applied = Controls;
+    Applied.Gear = Gear;
+    Applied.bSprint = bSprint;
+    if (Transition != ETransition::None || IsPaused())
+    {
+        Applied = NB::FRiderInput();
+        Applied.Gear = Gear;
+        Applied.FrontBrake = Applied.RearBrake = 1.0;
+    }
+    return Applied;
+}
+
+void ANammaBicycle::TickTransition(float DeltaSeconds)
+{
+    if (!Rider.IsValid() || Transition == ETransition::None) return;
+    TransitionTime = FMath::Min(1.f, TransitionTime + DeltaSeconds / 0.45f);
+    const float T = FMath::SmoothStep(0.f, 1.f, TransitionTime);
+    if (Transition == ETransition::Mounting)
+    {
+        FVector Position = FMath::Lerp(TransitionFrom, SeatOffset, T);
+        Position.Z += FMath::Sin(T * PI) * 12.f;
+        Rider->SetActorRelativeLocation(Position);
+        if (TransitionTime >= 1.f) Transition = ETransition::None;
+    }
+    else
+    {
+        Rider->SetActorLocation(FMath::Lerp(TransitionFrom, DismountTarget, T));
+        if (TransitionTime >= 1.f) FinishDismount(false);
+    }
+}
+
 void ANammaBicycle::Dismount(bool bThrown)
+{
+    if (!Rider.IsValid()) return;
+    if (bThrown)
+    {
+        DismountTarget = Rider->GetActorLocation();
+        FVector ClearSpot;
+        if (FindDismountSpot(Rider.Get(), ClearSpot)) DismountTarget = ClearSpot;
+        FinishDismount(true);
+        return;
+    }
+    if (Transition != ETransition::None || FMath::Abs(Movement->GetSpeedKph()) > 5.f) return;
+    if (!FindDismountSpot(Rider.Get(), DismountTarget)) return;
+    Transition = ETransition::Dismounting;
+    TransitionTime = 0.f;
+    TransitionFrom = Rider->GetActorLocation();
+    Rider->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+}
+
+void ANammaBicycle::FinishDismount(bool bThrown)
 {
     ANammaPlayerCharacter* Player = Rider.Get();
     APlayerController* PC = RiderController.Get();
+    const FVector Momentum = bThrown ? Movement->GetEjectionVelocity() : FVector::ZeroVector;
     Rider.Reset();
     RiderController.Reset();
+    Transition = ETransition::None;
     Movement->SetRiderAboard(false);
     Controls = NB::FRiderInput();
     bSprint = false;
     if (!Player) return;
-    UE_LOG(LogNammaVehicle, Log, TEXT("Rider %s the cycle at %.1f km/h (lean %.0f deg, pitch %.2f rad)"),
-        bThrown ? TEXT("was thrown off") : TEXT("got off"), Movement->GetSpeedKph(),
-        Movement->GetLeanDegrees(), Movement->GetState().Pitch);
-    FVector Spot;
-    if (!FindDismountSpot(Player, Spot))
-        Spot = GetActorLocation() - GetActorRightVector() * 95.f
-             + FVector(0.f, 0.f, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+    Player->GetMesh()->RemoveTickPrerequisiteActor(this);
+    Player->GetMesh()->PrimaryComponentTick.TickGroup = TG_PrePhysics;
     Player->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-    // A crash always throws the rider, even a slow tip-over: going over the bars at
-    // walking pace still puts the rider on the road in front of the bike.
-    Player->EndRiding(Spot, bThrown ? GetVelocity() + GetActorForwardVector() * 130.f
-                                    : FVector::ZeroVector);
-    if (PC)
+    // Restore possession before applying crash momentum: Restart must not overwrite
+    // the ragdoll state or its physical velocity.
+    if (PC) { PC->Possess(Player); Player->Restart(); }
+    Player->EndRiding(DismountTarget, Momentum, bThrown);
+    if (PC) PC->SetControlRotation(FRotator(-12.f, GetActorRotation().Yaw, 0.f));
+    UE_LOG(LogNammaVehicle, Log, TEXT("Cycle dismount: thrown=%d"), bThrown);
+}
+
+void ANammaBicycle::EndPlay(const EEndPlayReason::Type Reason)
+{
+    if (Rider.IsValid())
     {
-        PC->Possess(Player);
-        PC->SetControlRotation(FRotator(-12.f, GetActorRotation().Yaw, 0.f));
+        DismountTarget = Rider->GetActorLocation();
+        FinishDismount(false);
     }
+    Super::EndPlay(Reason);
 }
 
 bool ANammaBicycle::GetRidePose(FNammaRidePose& Out) const
@@ -474,9 +616,24 @@ bool ANammaBicycle::GetRidePose(FNammaRidePose& Out) const
     Out.GripLeft = GripLeft->GetComponentLocation();
     Out.GripRight = GripRight->GetComponentLocation();
     Out.Saddle = RiderMount->GetComponentLocation();
+    Out.Weight = Transition == ETransition::Mounting ? FMath::SmoothStep(0.f, 1.f, TransitionTime)
+        : Transition == ETransition::Dismounting ? 1.f - FMath::SmoothStep(0.f, 1.f, TransitionTime) : 1.f;
+    if (Transition == ETransition::Mounting)
+        Out.Saddle += Rider->GetActorLocation() - RiderMount->GetComponentTransform().TransformPosition(SeatOffset);
     // An upright roadster posture that tucks a little as speed rises.
     Out.TorsoPitchDegrees = 18.f + FMath::Clamp(Movement->GetSpeedKph(), 0.f, 35.f) * 0.35f;
-    Out.bFootDown = Movement->GetTelemetry().bFootDown;
+    Out.bFootDown = Movement->GetTelemetry().bFootDown && Transition == ETransition::None;
+    Out.FootDownTarget = Out.PedalLeft;
+    if (Out.bFootDown)
+    {
+        FHitResult Floor;
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaCycleFoot), false, this);
+        Params.AddIgnoredActor(Rider.Get());
+        const FVector Start = RiderMount->GetComponentLocation() - GetActorRightVector() * 28.f;
+        if (GetWorld()->LineTraceSingleByChannel(Floor, Start, Start - FVector(0,0,150), ECC_Visibility, Params))
+            Out.FootDownTarget = Floor.ImpactPoint + FVector(0,0,11);
+        else Out.bFootDown = false;
+    }
     return true;
 }
 
@@ -494,6 +651,9 @@ FText ANammaBicycle::GetTelemetryLine() const
 {
     const NB::FTelemetry& Telemetry = Movement->GetTelemetry();
     FString Flags;
+    if (Transition == ETransition::Mounting) Flags += TEXT(" MOUNTING");
+    if (Transition == ETransition::Dismounting) Flags += TEXT(" DISMOUNTING");
+    if (FMath::Abs(Movement->GetSpeedKph()) > 5.f) Flags += TEXT(" slow down to dismount");
     if (Telemetry.bFreewheeling) Flags += TEXT(" freewheel");
     if (Telemetry.bFrontLocked) Flags += TEXT(" FRONT LOCKED");
     if (Telemetry.bRearLocked) Flags += TEXT(" REAR SKID");
@@ -636,7 +796,11 @@ void ANammaBicycle::RestartDelivery()
     if (Mode && (IsPaused() || Mode->GetDeliveryStage() == ENammaDeliveryStage::Complete))
     {
         UGameplayStatics::SetGamePaused(this, false);
-        if (Rider.IsValid()) Dismount(false);
+        if (Rider.IsValid())
+        {
+            DismountTarget = Rider->GetActorLocation();
+            FinishDismount(false);
+        }
         Movement->ResetTo(StartTransform);
         Mode->RestartDelivery();
     }

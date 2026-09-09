@@ -3,6 +3,7 @@
 #include "../Source/NammaCity/NammaBicyclePhysics.h"
 
 #include <cmath>
+#include "../Source/NammaCity/NammaBicycleChain.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -213,7 +214,9 @@ static void TestDrivetrainAndFreewheel()
     // Torque-limited off the line, power-limited at cruise.
     FSim Start;
     Out = Step(Start.Setup, Start.State, Pedalling(0), Start.Surface, Start.Dt);
-    Check(Out.CrankTorque > Start.Setup.MaxCrankTorque * 0.9, "standing start is torque limited");
+    Near(Out.CrankTorque, Start.Setup.MaxCrankTorque * PedalEffectiveness(Start.Setup, 0.0),
+         1e-9, "standing start respects torque limit and actual pedal leverage");
+    Check(Start.State.CrankAngle < 0.1, "starting does not teleport the crank to the power position");
     FSim Cruise;
     Cruise.State.Speed = 9.0;
     Cruise.State.RearWheelRate = 9.0 / Cruise.Setup.WheelRadius;
@@ -670,8 +673,63 @@ static void TestAirborneWheels()
     Check(Finite(Sim.State), "airborne wheels keep the state finite");
 }
 
+static void TestFixedChainAndFreewheel()
+{
+    FSetup Setup;
+    int Count = 0;
+    for (int Gear = 0; Gear < Setup.GearCount; ++Gear)
+    {
+        auto G = ChainGeometry(Setup, SprocketRadius(Setup.SprocketTeeth[Gear]), SprocketOffset(Setup, Gear));
+        auto Loop = RenderChainLoop(Setup, G);
+        if (Count == 0) Count = Loop.Links;
+        Check(Loop.Links == Count && Count % 2 == 0, "shifting preserves an even, fixed link count");
+        Near(Loop.Length, Count * ChainPitch, 1e-12, "closed loop has exact chain pitch length");
+        double Measured = 0.0;
+        auto Previous = RenderChainPoint(Setup, Loop, 0.0);
+        for (int I = 1; I <= 20000; ++I)
+        {
+            auto Point = RenderChainPoint(Setup, Loop, Loop.Length * I / 20000.0);
+            const double Segment = std::sqrt(std::pow(Point.X - Previous.X, 2) + std::pow(Point.Y - Previous.Y, 2)
+                                           + std::pow(Point.Z - Previous.Z, 2));
+            Check(Segment < 0.0001, "chain path is continuous through wraps and tensioner");
+            Measured += Segment;
+            Previous = Point;
+        }
+        Near(Measured, Loop.Length, 0.0002, "path arc length agrees with physical link spacing");
+    }
+    FSim Sim;
+    Sim.Run(Pedalling(3), 8.0);
+    FRiderInput Coast; Coast.Gear = 3;
+    Sim.Run(Coast, 6.0);
+    const double Cassette = Sim.State.CassetteAngle;
+    const double Chain = Sim.State.ChainTravel;
+    Sim.Run(Coast, 0.4);
+    Near(Sim.State.CassetteAngle, Cassette, 1e-12, "freewheel carrier stops when rider stops pedalling");
+    Near(Sim.State.ChainTravel, Chain, 1e-12, "chain stops while rear wheel coasts");
+    Check(Sim.State.RearWheelRate > 1.0, "rear wheel still spins with stationary cassette");
+    const double Lateral = Sim.State.ChainLateral;
+    Coast.Gear = 0;
+    Sim.Run(Coast, 1.0);
+    Near(Sim.State.ChainLateral, Lateral, 1e-12, "stationary chain cannot shift sprockets");
+    Sim.Run(Pedalling(0), 1.0);
+    Near(Sim.State.ChainLateral, SprocketOffset(Setup, 0), 1e-12, "pedalling completes queued shift");
+
+    FState State;
+    State.Speed = 8.0;
+    State.FrontWheelRate = State.RearWheelRate = 8.0 / Setup.WheelRadius;
+    FSurface Split; Split.FrontFriction = 0.2; Split.RearFriction = 0.85;
+    FRiderInput Brake; Brake.FrontBrake = Brake.RearBrake = 1.0;
+    for (int I = 0; I < 120; ++I)
+    {
+        const auto T = Step(Setup, State, Brake, Split, 1.0 / 240.0);
+        Check(std::fabs(T.FrontTyreForce) <= 0.2 * T.FrontLoad + 1e-8, "front tyre obeys its own surface grip");
+        Check(std::fabs(T.RearTyreForce) <= 0.85 * T.RearLoad + 1e-8, "rear tyre obeys its own surface grip");
+    }
+}
+
 int main()
 {
+    TestFixedChainAndFreewheel();
     TestChainAndGears();
     TestChainPath();
     TestDrivetrainAndFreewheel();

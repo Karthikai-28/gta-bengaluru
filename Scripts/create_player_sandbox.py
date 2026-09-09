@@ -69,7 +69,7 @@ def main():
     if not unreal.EditorLevelLibrary.new_level(MAP_PATH):
         raise RuntimeError("Could not create sandbox level")
     batches = {}
-    for shape, color, collision, center, size, pitch in geometry(data):
+    for shape, color, collision, center, size, pitch, yaw in geometry(data):
         key = (shape, color, collision)
         if key not in batches:
             actor = spawn(prop_cls, (0, 0, 0), f"SANDBOX_{shape}_{color}_{collision}")
@@ -78,8 +78,11 @@ def main():
             component.set_material(0, mats[color])
             component.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS if collision else unreal.CollisionEnabled.NO_COLLISION)
             batches[key] = component
+        # Unreal's Python Rotator is (roll, pitch, yaw), so name them; passing
+        # pitch and yaw in order silently rolls the instance instead.
         transform = unreal.Transform(location=unreal.Vector(*(v * 100 for v in center)),
-                                     rotation=unreal.Rotator(pitch, 0, 0), scale=unreal.Vector(*size))
+                                     rotation=unreal.Rotator(pitch=pitch, yaw=yaw, roll=0),
+                                     scale=unreal.Vector(*size))
         batches[key].add_instance(transform)
     spawn(unreal.PlayerStart, [v * 100 for v in data["spawn"]], "SANDBOX_Start", unreal.Rotator(0, data["spawn_yaw"], 0))
     for pickup, key in [(True, "pickup"), (False, "delivery")]:

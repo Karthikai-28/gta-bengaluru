@@ -36,6 +36,9 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     virtual void UnPossessed() override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+    NammaBicycle::FRiderInput GetAppliedControls() const;
+    FLinearColor GetFrameColor() const { return FrameColor; }
 
     virtual FText GetInteractionPrompt() const override;
     virtual bool CanInteract(const ANammaPlayerCharacter* Player) const override;
@@ -73,6 +76,8 @@ private:
     bool IsPaused() const;
 
     void BuildBicycle();
+    void TickTransition(float DeltaSeconds);
+    void FinishDismount(bool bThrown);
     void UpdateArticulation();
     void UpdateChain();
     // Finds clear ground beside the bike for the rider to step onto.
@@ -98,6 +103,16 @@ private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UNammaBicycleMovementComponent> Movement;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> Parts;
+    UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> WheelParts;
+    UPROPERTY() TObjectPtr<class UMaterialInstanceDynamic> FramePaint;
+    UPROPERTY(EditAnywhere, Category="Appearance") int32 ColorSeed = -1;
+    FLinearColor FrameColor;
+    enum class ETransition { None, Mounting, Dismounting };
+    ETransition Transition = ETransition::None;
+    float TransitionTime = 0.f;
+    FVector TransitionFrom;
+    FVector SeatOffset;
+    FVector DismountTarget;
     UPROPERTY() TObjectPtr<UInputMappingContext> Mapping;
     UPROPERTY() TArray<TObjectPtr<UInputAction>> Actions;
 

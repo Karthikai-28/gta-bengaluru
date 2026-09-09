@@ -1,4 +1,5 @@
 #include "NammaBicycleMovement.h"
+#include "NammaBicycle.h"
 #include "NammaCity.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
@@ -58,6 +59,9 @@ UNammaBicycleMovementComponent::UNammaBicycleMovementComponent()
     PrimaryComponentTick.bCanEverTick = true;
     // Tick after input so the rider's controls reach the same frame they were pressed.
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    Setup.RiderMass = 0.0;
+    Setup.CentreOfMassHeight = 0.560;
+    Setup.CentreOfMassToRearAxle = 0.524;
 }
 
 float UNammaBicycleMovementComponent::GetMaxSpeed() const
@@ -74,6 +78,7 @@ void UNammaBicycleMovementComponent::SetRiderAboard(bool bAboard)
     {
         // Mounting a bike that went down is picking it up and getting back on.
         State.bCrashed = false;
+        ImpactVelocity = FVector::ZeroVector;
         State.Pitch = State.PitchRate = 0.0;
         State.Lean = State.LeanRate = 0.0;
         State.SlideTime = 0.0;
@@ -88,6 +93,7 @@ void UNammaBicycleMovementComponent::SetRiderAboard(bool bAboard)
 void UNammaBicycleMovementComponent::ResetTo(const FTransform& Transform)
 {
     State = NB::FState();
+    ImpactVelocity = FVector::ZeroVector;
     Telemetry = NB::FTelemetry();
     Input = NB::FRiderInput();
     State.Yaw = FMath::DegreesToRadians(Transform.Rotator().Yaw);
@@ -129,6 +135,7 @@ void UNammaBicycleMovementComponent::Probe(FNammaWheelGround& Wheel, const FVect
                                           AxleWorld - FVector(0, 0, Reach), FQuat::Identity,
                                           ECC_Visibility, FCollisionShape::MakeSphere(Radius * 0.5f), Params))
         return;
+    if (Hit.ImpactNormal.Z < 0.65f) return; // a wall is not a road surface
     Wheel.bContact = true;
     Wheel.GroundZ = Hit.ImpactPoint.Z;
     Wheel.Normal = Hit.ImpactNormal;
@@ -145,6 +152,8 @@ void UNammaBicycleMovementComponent::ApplyGroundToSurface(NB::FSurface& Surface)
     Surface.Friction = Front.Friction * FrontShare + Rear.Friction * (1.0 - FrontShare);
     Surface.RollingResistance = Front.RollingResistance * FrontShare
                               + Rear.RollingResistance * (1.0 - FrontShare);
+    Surface.FrontFriction = Front.Friction;
+    Surface.RearFriction = Rear.Friction;
     Surface.Grade = TerrainPitch;
 }
 
@@ -154,6 +163,18 @@ void UNammaBicycleMovementComponent::TickComponent(float DeltaSeconds, ELevelTic
     Super::TickComponent(DeltaSeconds, TickType, ThisTickFunction);
     if (ShouldSkipUpdate(DeltaSeconds) || !UpdatedComponent || !PawnOwner) return;
 
+    if (auto* Bike = Cast<ANammaBicycle>(PawnOwner)) Input = Bike->GetAppliedControls();
+    constexpr double Step = 1.0 / 240.0;
+    SubstepCarry = FMath::Min(SubstepCarry + DeltaSeconds, Step * 24.0);
+    while (SubstepCarry + 1e-10 >= Step)
+    {
+        SimulateStep(float(Step));
+        SubstepCarry = FMath::Max(0.0, SubstepCarry - Step);
+    }
+}
+
+void UNammaBicycleMovementComponent::SimulateStep(float DeltaSeconds)
+{
     const double Mass = NB::TotalMass(Setup);
     const float Radius = WheelRadiusCm();
     const float HalfBase = HalfWheelbaseCm();
@@ -219,23 +240,15 @@ void UNammaBicycleMovementComponent::TickComponent(float DeltaSeconds, ELevelTic
         Applied.Gear = State.Gear;
     }
 
-    // Fixed 240 Hz substeps with a bounded catch-up budget, matching how the character
-    // caps its own substepping. A long stall drops simulation time rather than
-    // integrating one enormous step.
-    constexpr double Substep = 1.0 / 240.0;
-    SubstepCarry = FMath::Min(SubstepCarry + DeltaSeconds, Substep * 24.0);
-    while (SubstepCarry >= Substep)
-    {
-        Telemetry = NB::Step(Setup, State, Applied, Surface, Substep);
-        SubstepCarry -= Substep;
-    }
+    Telemetry = NB::Step(Setup, State, Applied, Surface, DeltaSeconds);
     // Parked it rests on its stand; crashed it lies on its side until someone picks it up.
     if (!bRiderAboard)
         State.Lean = FMath::FInterpTo(float(State.Lean),
             FMath::DegreesToRadians(State.bCrashed ? -CrashedLeanDegrees : -ParkedLeanDegrees),
             DeltaSeconds, 5.f);
 
-    const FVector Delta = Forward * float(State.Speed * 100.0 * DeltaSeconds)
+    const FVector TravelForward = FRotator(0.f, float(FMath::RadiansToDegrees(State.Yaw)), 0.f).Vector();
+    const FVector Delta = TravelForward * float(State.Speed * 100.0 * DeltaSeconds)
                         + FVector(0, 0, float(VerticalVelocity * 100.0 * DeltaSeconds));
     const FRotator NewHeading(0.f, float(FMath::RadiansToDegrees(State.Yaw)), 0.f);
     FHitResult Hit;
@@ -244,17 +257,21 @@ void UNammaBicycleMovementComponent::TickComponent(float DeltaSeconds, ELevelTic
     {
         SlideAlongSurface(Delta, 1.f - Hit.Time, Hit.Normal, Hit, true);
         // Only the component of travel into the obstacle is lost; a graze keeps its speed.
-        const double Into = -FVector::DotProduct(Forward, Hit.Normal);
+        const double Into = -FVector::DotProduct(TravelForward, Hit.Normal);
+        const double ImpactSpeed = FMath::Abs(State.Speed) * FMath::Max(0.0, Into);
         if (Into > 0.0)
         {
+            if (UPrimitiveComponent* Other = Hit.GetComponent(); Other && Other->IsSimulatingPhysics())
+                Other->AddImpulseAtLocation(TravelForward * float(ImpactSpeed / (1.0 / Mass + 1.0 / FMath::Max(0.1f, Other->GetMass())) * 100.0), Hit.ImpactPoint);
+            if (ImpactSpeed > 2.0) ImpactVelocity = TravelForward * float(State.Speed * 100.0);
             State.Speed *= FMath::Max(0.0, 1.0 - Into);
-            if (Into > 0.7 && FMath::Abs(State.Speed) > 2.0) State.bCrashed = true;
+            if (ImpactSpeed > 2.0) State.bCrashed = true;
         }
         if (Hit.Normal.Z > 0.7 && VerticalVelocity < 0.0) VerticalVelocity = 0.0;
     }
     // Publish the pawn velocity: GetVelocity() feeds the camera, the animation graph
     // and the momentum a crash hands to the rider's ragdoll.
-    Velocity = Forward * float(State.Speed * 100.0) + FVector(0, 0, float(VerticalVelocity * 100.0));
+    Velocity = TravelForward * float(State.Speed * 100.0) + FVector(0, 0, float(VerticalVelocity * 100.0));
     UpdateComponentVelocity();
 }
 

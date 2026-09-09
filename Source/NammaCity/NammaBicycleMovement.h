@@ -64,6 +64,7 @@ public:
     {
         return float(FMath::RadiansToDegrees(TerrainPitch + State.Pitch));
     }
+    FVector GetEjectionVelocity() const { return ImpactVelocity.IsNearlyZero() ? Velocity : ImpactVelocity; }
     bool IsCrashed() const { return State.bCrashed; }
     static FText DescribeSurface(ENammaSurface Surface);
 
@@ -82,6 +83,7 @@ public:
     UPROPERTY(EditAnywhere, Category = "Bicycle") float CrashedLeanDegrees = 74.f;
 
 private:
+    void SimulateStep(float DeltaSeconds);
     void Probe(FNammaWheelGround& Wheel, const FVector& AxleWorld) const;
     void ApplyGroundToSurface(NammaBicycle::FSurface& Surface) const;
     static ENammaSurface ClassifyHit(const FHitResult& Hit);
@@ -92,6 +94,7 @@ private:
     NammaBicycle::FRiderInput Input;
     FNammaWheelGround FrontGround;
     FNammaWheelGround RearGround;
+    FVector ImpactVelocity = FVector::ZeroVector;
     double SurfaceFriction = 0.85;
     double TerrainPitch = 0.0;      // rad
     double VerticalVelocity = 0.0;  // m/s

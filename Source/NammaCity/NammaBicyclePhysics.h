@@ -104,6 +104,8 @@ struct FSurface
     double RollingResistance = 0.008;
     double Grade = 0.0;                // rad, positive uphill along travel
     double FrontLoadScale = 1.0;       // 0 while the wheel is off the ground
+    double FrontFriction = -1.0;       // negative inherits Friction
+    double RearFriction = -1.0;
     double RearLoadScale = 1.0;
 };
 
@@ -130,6 +132,7 @@ struct FState
     double RearWheelRate = 0.0;
     double FrontWheelAngle = 0.0;    // rad, accumulated for rendering
     double RearWheelAngle = 0.0;
+    double CassetteAngle = 0.0;       // freewheel carrier follows chain, not coasting wheel
     double CrankAngle = 0.0;         // rad, 0 puts the right pedal at top dead centre
     double CrankRate = 0.0;
     int Gear = 3;
@@ -353,11 +356,13 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     const double Radius = Setup.WheelRadius;
     const double WheelInertia = std::max(1e-6, Setup.WheelMass * Radius * Radius); // thin hoop
     const double Friction = std::max(0.05, Surface.Friction);
+    const double FrontFriction = Surface.FrontFriction >= 0.0 ? Surface.FrontFriction : Friction;
+    const double RearFriction = Surface.RearFriction >= 0.0 ? Surface.RearFriction : Friction;
 
     // ---- derailleur ---------------------------------------------------------
     State.Gear = std::clamp(Input.Gear, 0, Setup.GearCount - 1);
     const double TargetLateral = SprocketOffset(Setup, State.Gear);
-    const double LateralStep = Setup.DerailleurSpeed * Dt;
+    const double LateralStep = (State.CrankRate > 0.1 || Input.Pedal > 0.01) ? Setup.DerailleurSpeed * Dt : 0.0;
     if (std::fabs(TargetLateral - State.ChainLateral) <= LateralStep) State.ChainLateral = TargetLateral;
     else State.ChainLateral += Sign(TargetLateral - State.ChainLateral) * LateralStep;
     Out.bShifting = std::fabs(TargetLateral - State.ChainLateral) > 1e-6;
@@ -383,13 +388,13 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     const bool bSpunOut = DrivenCrankRate > MaxCrankRate;
     const bool bEngaged = Pedal > 0.01 && !bSpunOut && State.Speed > -0.2;
 
-    // Starting from rest, the rider first sets the pedal at the power position rather
-    // than pushing from a dead spot.
-    if (bEngaged && State.CrankRate < 0.05 && DrivenCrankRate < 0.05) State.CrankAngle = Pi * 0.5;
+    // Preserve crank phase at rest; the dead-spot torque floor permits starting
+    // without teleporting the pedals (and the rider feet) through a quarter turn.
     if (bEngaged) State.CrankRate = DrivenCrankRate;
     else if (bSpunOut && Pedal > 0.01) State.CrankRate = MaxCrankRate;  // legs spinning, no useful torque
     else State.CrankRate = std::max(0.0, State.CrankRate - 3.0 * Dt);   // legs coast to rest
 
+    Out.Cadence = State.CrankRate * 60.0 / (2.0 * Pi);
     double CrankTorque = 0.0;
     if (bEngaged)
     {
@@ -413,7 +418,8 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     const double ToFront = Setup.Wheelbase - Setup.CentreOfMassToRearAxle;
     State.TransferAcceleration += (State.LastAcceleration - State.TransferAcceleration)
                                * (1.0 - std::exp(-Dt / std::max(1e-3, Setup.LoadTransferTime)));
-    const double Transfer = Mass * State.TransferAcceleration * Setup.CentreOfMassHeight / Setup.Wheelbase;
+    const double Transfer = Mass * (State.TransferAcceleration + Gravity * std::sin(Surface.Grade))
+                          * Setup.CentreOfMassHeight / Setup.Wheelbase;
     const double RawFront = Normal * Setup.CentreOfMassToRearAxle / Setup.Wheelbase - Transfer;
     const double RawRear = Normal * ToFront / Setup.Wheelbase + Transfer;
 
@@ -468,13 +474,13 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     // A bicycle tyre near zero slip is stiff enough that explicit integration would
     // need a sub-millisecond step. Linearising the tyre about the current slip and
     // solving the wheel update implicitly removes that limit entirely.
-    auto Spin = [&](double& Rate, double& Angle, double Drive, double Brake, double Load,
+    auto Spin = [&](double& Rate, double& Angle, double Drive, double Brake, double Load, double Mu,
                     double& TyreForce, double& Slip)
     {
         const double Reference = std::max(std::fabs(State.Speed), Setup.SlipReferenceSpeed);
         Slip = std::clamp((Rate * Radius - State.Speed) / Reference, -3.0, 3.0);
         double Gradient = 0.0;
-        TyreForce = TyreLongitudinalForce(Setup, Slip, Friction, Load, &Gradient);
+        TyreForce = TyreLongitudinalForce(Setup, Slip, Mu, Load, &Gradient);
         const double Rolling = Surface.RollingResistance * Load * Radius;
         const double Applied = Drive - TyreForce * Radius;
         bool bLocked = false;
@@ -495,13 +501,13 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
         // Re-evaluate at the end-of-step wheel rate so the chassis sees the force the
         // implicit solve actually converged to.
         Slip = std::clamp((Rate * Radius - State.Speed) / Reference, -3.0, 3.0);
-        TyreForce = TyreLongitudinalForce(Setup, Slip, Friction, Load);
+        TyreForce = TyreLongitudinalForce(Setup, Slip, Mu, Load);
         return bLocked && std::fabs(State.Speed) > 0.05;
     };
     Out.bFrontLocked = Spin(State.FrontWheelRate, State.FrontWheelAngle, 0.0, FrontBrake,
-                            Out.FrontLoad, Out.FrontTyreForce, Out.FrontSlip);
+                            Out.FrontLoad, FrontFriction, Out.FrontTyreForce, Out.FrontSlip);
     Out.bRearLocked = Spin(State.RearWheelRate, State.RearWheelAngle, Out.RearDriveTorque, RearBrake,
-                           Out.RearLoad, Out.RearTyreForce, Out.RearSlip);
+                           Out.RearLoad, RearFriction, Out.RearTyreForce, Out.RearSlip);
 
     // The chain is rigid: with the freewheel engaged the crank and the rear wheel end
     // the step in exact lockstep, which is what keeps the drawn cranks, chain and
@@ -511,6 +517,7 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     Out.Cadence = State.CrankRate * 60.0 / (2.0 * Pi);
     Out.Chain.Speed = State.CrankRate * Out.Chain.ChainringRadius;
     State.ChainTravel += Out.Chain.Speed * Dt;
+    State.CassetteAngle = std::fmod(State.CassetteAngle + Out.Chain.Speed / EngagedRadius * Dt, 2.0 * Pi);
 
     // ---- chassis ------------------------------------------------------------
     Out.DragForce = 0.5 * AirDensity * Setup.DragCoefficient * Setup.FrontalArea * State.Speed * std::fabs(State.Speed);
@@ -546,10 +553,11 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     double YawDemand = Speed * std::tan(State.SteerAngle) / Setup.Wheelbase;
     Out.TurnRadius = std::fabs(std::tan(State.SteerAngle)) > 1e-4
         ? Setup.Wheelbase / std::fabs(std::tan(State.SteerAngle)) : 0.0;
-    const double UsedLongitudinal = Out.FrontTyreForce + Out.RearTyreForce;
-    const double TotalGrip = Friction * (Out.FrontLoad + Out.RearLoad);
+    const double FrontGrip = FrontFriction * Out.FrontLoad;
+    const double RearGrip = RearFriction * Out.RearLoad;
     // Friction circle: cornering gets whatever the tyres are not already spending.
-    Out.LateralGrip = std::sqrt(std::max(0.0, TotalGrip * TotalGrip - UsedLongitudinal * UsedLongitudinal));
+    Out.LateralGrip = std::sqrt(std::max(0.0, FrontGrip * FrontGrip - Out.FrontTyreForce * Out.FrontTyreForce))
+                    + std::sqrt(std::max(0.0, RearGrip * RearGrip - Out.RearTyreForce * Out.RearTyreForce));
     // A bike held at lean phi needs m*g*tan(phi) sideways from the road simply to stay
     // up, whatever the handlebars are doing. That, not the steering demand, is what
     // decides a lowside: it is why wet paint under a leaned two-wheeler drops it.
@@ -566,6 +574,7 @@ inline FTelemetry Step(const FSetup& Setup, FState& State, const FRiderInput& In
     else State.SlideTime = std::max(0.0, State.SlideTime - Dt);
     if (!bGrounded) Authority = 1.0;   // airborne there is nothing to topple against
 
+    if (!bGrounded) YawDemand = State.YawRate; // steering cannot turn the trajectory in mid-air
     State.YawRate = YawDemand;
     State.Yaw = std::fmod(State.Yaw + State.YawRate * Dt, 2.0 * Pi);
 

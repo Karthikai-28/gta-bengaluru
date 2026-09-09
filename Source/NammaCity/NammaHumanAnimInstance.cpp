@@ -15,8 +15,10 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
     // and grips actually are, so the legs follow the crank the drivetrain is turning
     // rather than a looping pedal animation.
     float RideAlpha = 0.f;
+    float FootDownAlpha = 0.f;
     float TorsoPitch = 0.f;
     FVector RideFoot[2] = {FVector::ZeroVector, FVector::ZeroVector};
+    FVector RideSaddle = FVector::ZeroVector;
     FVector RideHand[2] = {FVector::ZeroVector, FVector::ZeroVector};
 
     virtual void PreUpdate(UAnimInstance* Instance, float DeltaSeconds) override
@@ -34,11 +36,13 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
         if (bReach) HandTarget = Mesh->GetComponentTransform().InverseTransformPosition(Target);
         FNammaRidePose Ride;
         const bool bRiding = Character->GetRidePose(Ride);
-        RideAlpha = FMath::Lerp(RideAlpha, bRiding ? 1.f : 0.f, Blend);
+        RideAlpha = FMath::Lerp(RideAlpha, bRiding ? Ride.Weight : 0.f, Blend);
         if (bRiding)
         {
             const FTransform& ToMesh = Mesh->GetComponentTransform();
-            RideFoot[0] = ToMesh.InverseTransformPosition(Ride.PedalLeft);
+            RideSaddle = ToMesh.InverseTransformPosition(Ride.Saddle);
+            FootDownAlpha = FMath::Lerp(FootDownAlpha, Ride.bFootDown ? 1.f : 0.f, Blend);
+            RideFoot[0] = ToMesh.InverseTransformPosition(FMath::Lerp(Ride.PedalLeft, Ride.FootDownTarget, FootDownAlpha));
             RideFoot[1] = ToMesh.InverseTransformPosition(Ride.PedalRight);
             RideHand[0] = ToMesh.InverseTransformPosition(Ride.GripLeft);
             RideHand[1] = ToMesh.InverseTransformPosition(Ride.GripRight);
@@ -68,6 +72,7 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
         }
         FTransform Pelvis = Pose.GetComponentSpaceTransform(PelvisIndex);
         Pelvis.AddToTranslation(FVector(0, 0, -CrouchDepth));
+        Pelvis.SetLocation(FMath::Lerp(Pelvis.GetLocation(), RideSaddle, RideAlpha));
         TArray<FBoneTransform> Transforms;
         Transforms.Emplace(PelvisIndex, Pelvis);
         Pose.LocalBlendCSBoneTransforms(Transforms, 1.f);
