@@ -3,6 +3,7 @@
 #include "NammaHumanAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Misc/PackageName.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
 #include "NammaCityGameModeBase.h"
 #include "NammaInteractable.h"
@@ -78,7 +79,12 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
         TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
     static ConstructorHelpers::FClassFinder<UAnimInstance> Animation(
         TEXT("/Game/NammaCity/Characters/ABP_NammaHuman"));
-    GetMesh()->SetSkeletalMesh(Human.Object);
+    // The original human skin shares Manny's bind skeleton and physics asset.
+    // Keep the movement test rig available until the art import has been prepared.
+    USkeletalMesh* HumanLook = FPackageName::DoesPackageExist(TEXT("/Game/NammaCity/Characters/Human/SK_NammaMan"))
+        ? LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/NammaCity/Characters/Human/SK_NammaMan.SK_NammaMan"))
+        : nullptr;
+    GetMesh()->SetSkeletalMesh(HumanLook ? HumanLook : Human.Object.Get());
     GetMesh()->SetRelativeLocationAndRotation(FVector(0, 0, -90), FRotator(0, -90, 0));
     GetMesh()->SetAnimInstanceClass(Animation.Class);
     GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
@@ -169,6 +175,7 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
     Input->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ANammaPlayerCharacter::CrouchEnd);
     Input->BindAction(Button(EKeys::E), ETriggerEvent::Started, this, &ANammaPlayerCharacter::Interact);
     Input->BindAction(Button(EKeys::F), ETriggerEvent::Started, this, &ANammaPlayerCharacter::GrabOrRelease);
+    Input->BindAction(Button(EKeys::V), ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePerspective);
     Input->BindAction(Button(EKeys::X), ETriggerEvent::Started, this, &ANammaPlayerCharacter::ToggleRagdoll);
     auto* PauseAction = Button(EKeys::Escape);
     PauseAction->bTriggerWhenPaused = true;
@@ -509,6 +516,7 @@ void ANammaPlayerCharacter::EnterRagdoll(const FVector& Momentum)
     SprintEnd();
     StopJumping();
     UnCrouch();
+    GetMesh()->UnHideBoneByName(TEXT("head"));
     bRagdoll = true;
     FocusedActor.Reset();
     GetCharacterMovement()->DisableMovement();
@@ -555,4 +563,30 @@ bool ANammaPlayerCharacter::GetRidePose(FNammaRidePose& Out) const
 {
     const ANammaBicycle* Bicycle = Riding.Get();
     return !bRagdoll && Bicycle && Bicycle->GetRidePose(Out);
+}
+
+void ANammaPlayerCharacter::TogglePerspective()
+{
+    if (IsPaused()) return;
+    bFirstPerson = !bFirstPerson;
+    if (IsFirstPerson()) GetMesh()->HideBoneByName(TEXT("head"), PBO_None);
+    else GetMesh()->UnHideBoneByName(TEXT("head"));
+}
+
+void ANammaPlayerCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
+{
+    if (!IsFirstPerson())
+    {
+        GetMesh()->UnHideBoneByName(TEXT("head"));
+        Super::CalcCamera(DeltaTime, OutResult);
+        return;
+    }
+    GetMesh()->HideBoneByName(TEXT("head"), PBO_None);
+    OutResult = FMinimalViewInfo();
+    // Capsule-relative eyes avoid animation bob and retain a level horizon.
+    // The seated pelvis lowers the rider actor naturally during the mount blend.
+    OutResult.Location = GetActorLocation() + FVector(0, 0, BaseEyeHeight)
+        + GetActorForwardVector() * (IsRiding() ? 20.f : 10.f);
+    OutResult.Rotation = GetControlRotation();
+    OutResult.FOV = 85.f;
 }

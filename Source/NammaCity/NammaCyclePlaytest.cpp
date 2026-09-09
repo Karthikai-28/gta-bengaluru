@@ -122,6 +122,12 @@ FAutoConsoleCommandWithWorld Playtest(TEXT("Namma.Cycle.Playtest"),
             if (D < Best) { Best = D; Bike = *It; }
         }
         if (!PC || !Bike) { UE_LOG(LogNammaVehicle, Error, TEXT("Playtest requires a player and cycle")); return; }
+        if (Best > FMath::Square(600.0))
+        {
+            UE_LOG(LogNammaVehicle, Error, TEXT("NAMMA_CYCLE_PLAYTEST_FAIL: no cycle within six metres of player spawn"));
+            FPlatformMisc::RequestExitWithStatus(false, 1);
+            return;
+        }
         Human->SetActorLocation(Bike->GetActorLocation() - Bike->GetActorRightVector() * 120.f + FVector(0,0,30));
         PC->SetControlRotation((Bike->GetActorLocation() - Human->GetActorLocation()).Rotation());
         const auto Test = MakeShared<FCyclePlaytest>();

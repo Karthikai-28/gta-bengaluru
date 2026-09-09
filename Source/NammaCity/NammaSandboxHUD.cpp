@@ -41,7 +41,7 @@ bool ANammaSandboxHUD::DrawBicycle(float W, float H)
     DrawText(Bicycle->GetTelemetryLine().ToString(), Gold, 32, H - 120, nullptr, 1.15f);
     DrawText(Bicycle->GetGearLine().ToString(), FLinearColor::White, 32, H - 96);
     DrawText(TEXT("W Pedal   S Rear brake   Space Front brake   A/D Steer/lean   Shift Sprint"
-                  "   Wheel or 1-6 Gears   E Get off   X Bail   Esc Pause"),
+                  "   Wheel or 1-6 Gears   V View   E Get off   X Bail   Esc Pause"),
              FLinearColor::White, 32, H - 74);
     return true;
 }
@@ -64,9 +64,26 @@ void ANammaSandboxHUD::DrawHUD()
     if (!bRiding)
     {
         DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
-        DrawText(TEXT("WASD Move   Mouse Look   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab/Drop   X Ragdoll/Reset   Esc Pause"), FLinearColor::White, 32, H - 45);
+        DrawText(TEXT("WASD Move   Mouse Look   V View   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab/Drop   X Ragdoll/Reset   Esc Pause"), FLinearColor::White, 32, H - 45);
         DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
         DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
+        const ANammaBicycle* NearestCycle = nullptr;
+        double CycleDistance = 8000.0;
+        for (TActorIterator<ANammaBicycle> It(GetWorld()); It; ++It)
+        {
+            const double Distance = FVector::Dist(Player->GetActorLocation(), It->GetActorLocation());
+            if (!It->HasRider() && Distance < CycleDistance) { CycleDistance = Distance; NearestCycle = *It; }
+        }
+        if (NearestCycle)
+        {
+            FVector2D Position;
+            const FString Label = FString::Printf(TEXT("CYCLE  %.0f m  |  E Ride"), CycleDistance / 100.0);
+            if (PlayerOwner->ProjectWorldLocationToScreen(NearestCycle->GetActorLocation() + FVector(0,0,130), Position)
+                && Position.X > 40 && Position.X < W - 200 && Position.Y > 130 && Position.Y < H - 100)
+                DrawText(Label, Gold, Position.X - 60, Position.Y);
+            else DrawText(FString::Printf(TEXT("Cycle nearby: %.0f m — turn to find the marker"), CycleDistance / 100.0),
+                          Gold, 32, H - 84);
+        }
         const FText Prompt = Player->GetInteractionPrompt();
         if (!Prompt.IsEmpty()) DrawText(Prompt.ToString(), Gold, W / 2 - 80, H / 2 + 34, nullptr, 1.3f);
     }

@@ -22,7 +22,7 @@ struct FNammaWheelGround
 {
     bool bContact = false;
     double GroundZ = 0.0;          // cm
-    double Compression = 0.0;      // m of suspension travel used
+    double Compression = 0.0;      // reserved for visual tyre deformation
     FVector Normal = FVector::UpVector;
     ENammaSurface Surface = ENammaSurface::Asphalt;
 };
@@ -74,8 +74,9 @@ public:
     float RestHeightCm() const { return RootRestHeight; }
 
     UPROPERTY(EditAnywhere, Category = "Bicycle") float SuspensionTravelCm = 6.f;
-    UPROPERTY(EditAnywhere, Category = "Bicycle") float StaticSagCm = 2.5f;
-    UPROPERTY(EditAnywhere, Category = "Bicycle") float SuspensionDampingRatio = 0.35f;
+    // Retained to read old maps; ground support no longer uses a chassis spring.
+    UPROPERTY() float StaticSagCm = 2.5f;
+    UPROPERTY() float SuspensionDampingRatio = 0.8f;
     // The collision hull clears the road, so kerbs and speed breakers are resolved by
     // the wheel traces rather than by the hull catching on them.
     UPROPERTY(EditAnywhere, Category = "Bicycle") float RootRestHeight = 65.f;

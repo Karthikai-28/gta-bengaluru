@@ -24,6 +24,9 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
+    void TogglePerspective();
+    bool IsFirstPerson() const { return bFirstPerson && !bRagdoll; }
     void RecoverToStart();
     FText GetInteractionPrompt() const;
     bool GetHandTarget(FVector& WorldTarget) const;
@@ -72,6 +75,7 @@ private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> Boom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UPhysicsHandleComponent> PhysicsHandle;
+    bool bFirstPerson = false;
     bool bRagdoll = false;
     FTransform StandingMeshTransform;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Parcel;

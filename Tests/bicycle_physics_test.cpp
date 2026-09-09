@@ -3,6 +3,7 @@
 #include "../Source/NammaCity/NammaBicyclePhysics.h"
 
 #include <cmath>
+#include "../Source/NammaCity/NammaBicycleSuspension.h"
 #include "../Source/NammaCity/NammaBicycleChain.h"
 #include <cstdio>
 #include <cstdlib>
@@ -727,8 +728,45 @@ static void TestFixedChainAndFreewheel()
     }
 }
 
+static void TestWheelSupport()
+{
+    for (double Dt : {1.0/30, 1.0/60, 1.0/120, 1.0/240})
+    {
+        double Z=1.2, V=0; bool Landed=false;
+        for (int I=0; I<1200; ++I)
+        {
+            const auto R=ResolveWheelSupport(Z,V,true,.65,Dt);
+            Z=R.Height; V=R.Velocity;
+            Check(Z>=.65, "wheel support cannot penetrate the road");
+            if (Landed) { Near(Z,.65,1e-12,"landed bike never rebounds"); Near(V,0,1e-12,"landing has zero restitution"); }
+            Landed |= R.Grounded;
+        }
+        Check(Landed,"falling bike reaches the road");
+        // A trace seam briefly misses the floor every other frame. Restoring
+        // support may correct position but must never inject upward momentum.
+        for (int I=0; I<1200; ++I)
+        {
+            const auto R=ResolveWheelSupport(Z,V,I%2==0,.65,Dt);
+            Z=R.Height; V=R.Velocity;
+            Check(V<=0 && Z<=.65,"intermittent contacts cannot pump a bounce");
+        }
+        const auto Overlap=ResolveWheelSupport(-10,0,true,.65,Dt);
+        Near(Overlap.Height,.65,1e-12,"deep overlap is corrected geometrically");
+        Near(Overlap.Velocity,0,1e-12,"deep overlap supplies no launch energy");
+        const auto Drop=ResolveWheelSupport(.65,0,true,.45,Dt);
+        Check(!Drop.Grounded && Drop.Height<.65 && Drop.Height>.45,"curb descent falls rather than snapping down");
+        const auto Air=ResolveWheelSupport(2,1,false,0,Dt);
+        Near(Air.Velocity,1-9.81*Dt,1e-12,"airborne wheel support preserves ballistic motion");
+        const auto Ramp=ResolveWheelSupport(.64,0,true,.65,Dt,.5);
+        Near(Ramp.Velocity,.5,1e-12,"continuous uphill support preserves tangent velocity");
+        const auto DownRamp=ResolveWheelSupport(.64,0,true,.65,Dt,-.5);
+        Near(DownRamp.Velocity,-.5,1e-12,"downhill contact follows the road tangent");
+    }
+}
+
 int main()
 {
+    TestWheelSupport();
     TestFixedChainAndFreewheel();
     TestChainAndGears();
     TestChainPath();

@@ -5,8 +5,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sandbox_layout import cycle_features, load_layout
+from sandbox_layout import cycle_features, load_layout, starter_cycle_pose
 import unreal
+from sandbox_materials import ensure_instanced, repair_sandbox_materials
 
 MAP_PATH = "/Game/NammaCity/Maps/L_PlayerSandbox"
 MATERIAL_ROOT = "/Game/NammaCity/Materials/Sandbox"
@@ -18,7 +19,7 @@ def material(name, rgb):
     """Reuses the generator's flat sandbox material, creating it only if missing."""
     path = f"{MATERIAL_ROOT}/M_Sandbox_{name}"
     if unreal.EditorAssetLibrary.does_asset_exist(path):
-        return unreal.load_asset(path)
+        return ensure_instanced(unreal.load_asset(path))
     asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         f"M_Sandbox_{name}", MATERIAL_ROOT, unreal.Material, unreal.MaterialFactoryNew())
     if asset is None:
@@ -36,6 +37,9 @@ def material(name, rgb):
     # Wet paint and metal covers are the low-grip case, so they read as polished.
     roughness.set_editor_property("r", 0.15 if name == "wet" else 0.9)
     unreal.MaterialEditingLibrary.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    # Every sandbox prop is drawn through an instanced mesh component, so without
+    # this usage flag the material is silently swapped for the default checker.
+    asset.set_editor_property("used_with_instanced_static_meshes", True)
     unreal.MaterialEditingLibrary.recompile_material(asset)
     if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
         raise RuntimeError(f"Could not save {path}")
@@ -57,15 +61,13 @@ def prepare_cycle_materials():
             unreal.MaterialEditingLibrary.connect_material_property(scalar, "", prop)
         unreal.MaterialEditingLibrary.recompile_material(paint)
         assert unreal.EditorAssetLibrary.save_loaded_asset(paint)
-    # Wheel rings and the chain are instanced. Cook the correct material permutations.
-    for name in ["dark", "cream", "gold"]:
-        mat = unreal.load_asset(f"{MATERIAL_ROOT}/M_Sandbox_{name}")
-        mat.set_editor_property("used_with_instanced_static_meshes", True)
-        unreal.MaterialEditingLibrary.recompile_material(mat)
-        assert unreal.EditorAssetLibrary.save_loaded_asset(mat)
+    # Repair all existing palette assets, including gold, even on repeated setup.
+    for name, rgb in load_layout()["palette"].items():
+        ensure_instanced(material(name, rgb))
 
 
 def main():
+    repair_sandbox_materials()
     prepare_cycle_materials()
     bicycle_cls = unreal.load_class(None, "/Script/NammaCity.NammaBicycle")
     prop_cls = unreal.load_class(None, "/Script/NammaCity.NammaInstancedProp")
@@ -78,22 +80,50 @@ def main():
 
     data = load_layout()
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    # Older saved native component layouts contain orphaned wheel/paint entries.
+    # Recreate each cycle once using the current class, preserving placement and color.
+    layout_tag = unreal.Name("NammaCycle.Components.v2")
+    for old in list(actors.get_all_level_actors()):
+        if old.get_class() != bicycle_cls or layout_tag in old.tags:
+            continue
+        transform, label = old.get_actor_transform(), old.get_actor_label()
+        seed, tags = old.get_editor_property("color_seed"), list(old.tags)
+        replacement = actors.spawn_actor_from_class(bicycle_cls, old.get_actor_location(), old.get_actor_rotation())
+        if replacement is None:
+            raise RuntimeError(f"Failed to refresh {label}")
+        replacement.set_actor_transform(transform, False, True)
+        replacement.set_editor_property("color_seed", seed)
+        replacement.tags = tags + [layout_tag]
+        if not actors.destroy_actor(old):
+            actors.destroy_actor(replacement)
+            raise RuntimeError(f"Could not replace old cycle {label}")
+        replacement.set_actor_label(label)
     labels = {a.get_actor_label() for a in actors.get_all_level_actors()}
 
     if CYCLE_LABEL not in labels:
         cycle = actors.spawn_actor_from_class(
             bicycle_cls, unreal.Vector(*(v * 100 for v in data["cycle"])),
-            unreal.Rotator(0, data["cycle_yaw"], 0))
+            unreal.Rotator(pitch=0, yaw=data["cycle_yaw"], roll=0))
         if cycle is None:
             raise RuntimeError("Failed to spawn the cycle")
         cycle.set_actor_label(CYCLE_LABEL)
+        cycle.tags = [layout_tag]
         unreal.log(f"Placed {CYCLE_LABEL} outside CYCLE REPAIRS at {data['cycle']}")
 
-    if "CYCLE_Start_Rideable" not in labels:
-        starter = actors.spawn_actor_from_class(bicycle_cls, unreal.Vector(-4410, -3370, 95), unreal.Rotator(0, 0, 0))
-        if not starter:
-            raise RuntimeError("Failed to place starter cycle")
-        starter.set_actor_label("CYCLE_Start_Rideable")
+    # This generated starter follows the current spawn even when the map changes.
+    starter = next((a for a in actors.get_all_level_actors()
+                    if a.get_actor_label() == "CYCLE_Start_Rideable"), None)
+    location, yaw = starter_cycle_pose(data)
+    if starter is None:
+        starter = actors.spawn_actor_from_class(bicycle_cls, unreal.Vector(*(v * 100 for v in location)),
+            unreal.Rotator(pitch=0, yaw=yaw, roll=0))
+    if not starter:
+        raise RuntimeError("Failed to place starter cycle")
+    starter.set_actor_label("CYCLE_Start_Rideable")
+    starter.set_actor_location(unreal.Vector(*(v * 100 for v in location)), False, True)
+    starter.set_actor_rotation(unreal.Rotator(pitch=0, yaw=yaw, roll=0), True)
+    starter.tags = list(set(list(starter.tags) + [layout_tag, unreal.Name("NammaCycle.Starter")]))
+    unreal.log(f"Starter cycle updated to {location}; walk forward/left from spawn and press E")
 
     # One instanced actor per (shape, colour, collision), so a surface is a single
     # tagged actor the wheel traces can classify.

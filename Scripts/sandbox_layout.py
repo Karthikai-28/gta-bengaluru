@@ -115,17 +115,20 @@ def tree(x, y, reach, rng):
     # Foliage: a clump on every limb end, shaded masses filling the heart of the
     # crown, and small lit clumps on top to break the outline against the sky. The
     # clump's own bearing picks its tone, so each crown is bright on the sunward
-    # flank and dark on the other instead of being one flat green ball.
+    # flank and dark on the other instead of being one flat green ball. Clumps are
+    # seated back down their limb so neighbours interpenetrate and read as a single
+    # canopy; sitting them exactly on the tips leaves a ring of separate balls.
     for tip in tips:
-        size = spread * rng.uniform(0.62, 0.86)
+        size = spread * rng.uniform(0.72, 0.94)
+        seat = [x + (tip[0] - x) * 0.88, y + (tip[1] - y) * 0.88,
+                tip[2] + size * flat * 0.15]
         bearing = math.degrees(math.atan2(tip[1] - y, tip[0] - x))
         away = abs((bearing - SUN_BEARING + 180) % 360 - 180)
         tone = "leaflight" if away < 60 else "leafdark" if away > 120 else "leaf"
-        yield ("Sphere", tone, False,
-               [tip[0], tip[1], tip[2] + size * flat * 0.15], [size, size, size * flat], 0, 0)
+        yield ("Sphere", tone, False, seat, [size, size, size * flat], 0, 0)
     crown_z = sum(tip[2] for tip in tips) / len(tips)
     crown_top = max(tip[2] for tip in tips) + spread * flat * 0.45
-    for _ in range(2):
+    for _ in range(3):
         size = spread * rng.uniform(0.95, 1.15)
         yield ("Sphere", "leaf", False,
                [x + rng.uniform(-0.6, 0.6), y + rng.uniform(-0.6, 0.6),
@@ -245,3 +248,12 @@ def cycle_features(data):
     yield ramp("paving", -54.0, -46.5, road_y, 8.0, 0.45)   # climb
     yield box("paving", [-43.0, road_y, 0.35], [7.0, 8.0, 0.2])
     yield ramp("paving", -32.0, -39.5, road_y, 8.0, 0.45)   # descent, +X end lower
+
+
+def starter_cycle_pose(data):
+    """Metres; four metres forward and 1.5 metres left in the player's initial view."""
+    x, y, z = data["spawn"]
+    yaw = math.radians(data["spawn_yaw"])
+    return ([x + 4 * math.cos(yaw) + 1.5 * math.sin(yaw),
+             y + 4 * math.sin(yaw) - 1.5 * math.cos(yaw), z - .25],
+            data["spawn_yaw"])

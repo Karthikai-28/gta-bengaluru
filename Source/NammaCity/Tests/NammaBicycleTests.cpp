@@ -3,6 +3,7 @@
 #include "../NammaBicyclePhysics.h"
 #include "../NammaBicycleChain.h"
 #include "Components/BoxComponent.h"
+#include "Camera/CameraTypes.h"
 #include "../NammaPlayerCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -86,6 +87,15 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Parked bike stays put"), FMath::Abs(Movement->GetSpeedKph()) < 0.5f);
     TestTrue(TEXT("Both wheels are on the ground"),
         Movement->GetFrontGround().bContact && Movement->GetRearGround().bContact);
+    TestFalse(TEXT("Chaos cannot compete with custom cycle movement"), Bicycle->Hull->IsSimulatingPhysics());
+    const double ParkedZ = Bicycle->GetActorLocation().Z;
+    double ParkedVariation = 0.0;
+    for (int32 Frame=0; Frame<180; ++Frame)
+    {
+        Tick(1);
+        ParkedVariation=FMath::Max(ParkedVariation,FMath::Abs(Bicycle->GetActorLocation().Z-ParkedZ));
+    }
+    TestTrue(TEXT("Parked cycle does not bounce on flat ground"), ParkedVariation < .2);
     TestTrue(TEXT("Chain is built from real links"),
         Bicycle->Chain->GetInstanceCount() > 100 && Bicycle->Chain->GetInstanceCount() % 2 == 0);
 
@@ -97,12 +107,33 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     Human->SetActorLocation(Bicycle->GetActorLocation() + FVector(0, -120, 30));
     Tick(2);
     TestTrue(TEXT("Can mount from beside the bike"), Bicycle->CanInteract(Human));
+    Human->TogglePerspective();
+    TestTrue(TEXT("Walking perspective toggles to first person"), Human->IsFirstPerson());
+    FMinimalViewInfo WalkingView;
+    Human->CalcCamera(1.f / 60.f, WalkingView);
+    TestTrue(TEXT("First person eyes stay close to character"), FVector::Dist(WalkingView.Location, Human->GetActorLocation()) < 100.f);
     TestTrue(TEXT("Mount accepted"), Bicycle->Mount(Human));
     TestFalse(TEXT("A second rider is rejected"), Bicycle->Mount(Human));
     TestTrue(TEXT("Controller possesses the bicycle"), Controller->GetPawn() == Bicycle);
     TestTrue(TEXT("Rider is attached to the bicycle"), Human->GetAttachParentActor() == Bicycle);
     TestTrue(TEXT("Rider reports riding"), Human->IsRiding());
     Tick(30);
+    TestTrue(TEXT("Mount preserves first person preference"), Human->IsFirstPerson());
+    FMinimalViewInfo RidingView;
+    Bicycle->CalcCamera(1.f / 60.f, RidingView);
+    TestTrue(TEXT("Riding camera follows rider eyes"), FVector::Dist(RidingView.Location, Human->GetActorLocation()) < 100.f);
+    Bicycle->TogglePerspective();
+    TestFalse(TEXT("Riding perspective toggles to third person"), Human->IsFirstPerson());
+    Bicycle->TogglePerspective();
+    TestTrue(TEXT("Riding perspective toggles back to first person"), Human->IsFirstPerson());
+    const double RiddenZ = Bicycle->GetActorLocation().Z;
+    double RiddenVariation = 0.0;
+    for (int32 Frame=0; Frame<180; ++Frame)
+    {
+        Tick(1);
+        RiddenVariation=FMath::Max(RiddenVariation,FMath::Abs(Bicycle->GetActorLocation().Z-RiddenZ));
+    }
+    TestTrue(TEXT("Stationary rider cannot bounce the cycle"), RiddenVariation < .2);
     FNammaRidePose Pose;
     TestTrue(TEXT("Ride pose is published"), Human->GetRidePose(Pose));
     TestTrue(TEXT("Rider's hips sit on the saddle"),
@@ -280,6 +311,7 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
         FVector::Dist2D(Human->GetActorLocation(), Parked)));
     TestFalse(TEXT("Bike has no rider after dismount"), Bicycle->HasRider());
     TestFalse(TEXT("Rider is no longer riding"), Human->IsRiding());
+    TestTrue(TEXT("Dismount preserves perspective"), Human->IsFirstPerson());
     TestTrue(TEXT("Controller possesses the rider again"), Controller->GetPawn() == Human);
     TestNull(TEXT("Rider is detached"), Human->GetAttachParentActor());
     TestTrue(TEXT("Rider steps off beside the bike"),

@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_layout import geometry, load_layout
 import unreal
+from sandbox_materials import ensure_instanced, repair_sandbox_materials
 
 MAP_PATH = "/Game/NammaCity/Maps/L_PlayerSandbox"
 GENERATOR_TAG = "NammaSandboxGenerator"
@@ -24,7 +25,7 @@ def spawn(cls, xyz, label, rotation=None):
 def material(name, rgb):
     path = f"{MATERIAL_ROOT}/M_Sandbox_{name}"
     if unreal.EditorAssetLibrary.does_asset_exist(path):
-        return unreal.load_asset(path)
+        return ensure_instanced(unreal.load_asset(path))
     asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         f"M_Sandbox_{name}", MATERIAL_ROOT, unreal.Material, unreal.MaterialFactoryNew())
     if asset is None:
@@ -39,6 +40,9 @@ def material(name, rgb):
     roughness = unreal.MaterialEditingLibrary.create_material_expression(asset, unreal.MaterialExpressionConstant)
     roughness.set_editor_property("r", 0.9)
     unreal.MaterialEditingLibrary.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    # Every sandbox prop is drawn through an instanced mesh component, so without
+    # this usage flag the material is silently swapped for the default checker.
+    asset.set_editor_property("used_with_instanced_static_meshes", True)
     unreal.MaterialEditingLibrary.recompile_material(asset)
     if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
         raise RuntimeError(f"Could not save {path}")
@@ -53,6 +57,7 @@ def write_completion():
 
 
 def main():
+    repair_sandbox_materials()
     if unreal.EditorAssetLibrary.does_asset_exist(MAP_PATH):
         existing = unreal.EditorAssetLibrary.load_asset(MAP_PATH)
         if unreal.EditorAssetLibrary.get_metadata_tag(existing, GENERATOR_TAG) != GENERATOR_VERSION:

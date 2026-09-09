@@ -1,0 +1,20 @@
+{
+  "style": "Original stylized South Indian adult man",
+  "production_skeleton": false,
+  "vertices": 45528,
+  "bones": 56,
+  "materials": [
+    "Skin",
+    "Hair",
+    "Shirt",
+    "Seam",
+    "Trousers",
+    "Leather",
+    "Sole",
+    "EyeWhite",
+    "Iris",
+    "Lip",
+    "Button"
+  ],
+  "reference": null
+}

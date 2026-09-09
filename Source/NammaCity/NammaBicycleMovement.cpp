@@ -1,5 +1,7 @@
 #include "NammaBicycleMovement.h"
 #include "NammaBicycle.h"
+#include "NammaPlayerCharacter.h"
+#include "NammaBicycleSuspension.h"
 #include "NammaCity.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
@@ -127,15 +129,22 @@ void UNammaBicycleMovementComponent::Probe(FNammaWheelGround& Wheel, const FVect
     const float Reach = Radius + SuspensionTravelCm + 60.f;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(NammaBicycleWheel), false, PawnOwner);
     if (PawnOwner)
-        for (AActor* Attached : PawnOwner->Children) Params.AddIgnoredActor(Attached);
+    {
+        TArray<AActor*> AttachedActors;
+        PawnOwner->GetAttachedActors(AttachedActors, true, true);
+        Params.AddIgnoredActors(AttachedActors);
+    }
+    if (const auto* Bike = Cast<ANammaBicycle>(PawnOwner))
+        if (Bike->GetRider()) Params.AddIgnoredActor(Bike->GetRider());
     FHitResult Hit;
-    // A sphere the size of the wheel, not a line: a bicycle tyre bridges a seam or a
+    // A finite-width support sphere, not a line: a bicycle tyre bridges a seam or a
     // narrow pothole edge instead of dropping into it like an infinitely thin probe.
     if (!GetWorld()->SweepSingleByChannel(Hit, AxleWorld + FVector(0, 0, Radius),
                                           AxleWorld - FVector(0, 0, Reach), FQuat::Identity,
                                           ECC_Visibility, FCollisionShape::MakeSphere(Radius * 0.5f), Params))
         return;
-    if (Hit.ImpactNormal.Z < 0.65f) return; // a wall is not a road surface
+    if (Cast<APawn>(Hit.GetActor())) return; // people cannot become wheel support
+    if (Hit.bStartPenetrating || Hit.ImpactNormal.Z < 0.65f || Hit.ImpactPoint.Z > AxleWorld.Z) return; // a wall is not a road surface
     Wheel.bContact = true;
     Wheel.GroundZ = Hit.ImpactPoint.Z;
     Wheel.Normal = Hit.ImpactNormal;
@@ -191,45 +200,35 @@ void UNammaBicycleMovementComponent::SimulateStep(float DeltaSeconds)
     else
         TerrainPitch = FMath::FInterpTo(float(TerrainPitch), 0.f, DeltaSeconds, 6.f);
 
-    // Suspension. Sag is chosen so both wheels read a load scale of exactly one when
-    // the bike is standing still, which is what makes the tyre model's normal loads
-    // agree with the static split the specification sheet gives.
-    const double Sag = FMath::Max(0.005f, StaticSagCm) / 100.0;
-    const double FrontStatic = Mass * NB::Gravity * Setup.CentreOfMassToRearAxle / Setup.Wheelbase;
-    const double RearStatic = Mass * NB::Gravity - FrontStatic;
-    const double FrontRate = FrontStatic / Sag;
-    const double RearRate = RearStatic / Sag;
-    const double Travel = SuspensionTravelCm / 100.0;
-
-    auto Compression = [&](const FNammaWheelGround& Wheel, double Lift)
-    {
-        if (!Wheel.bContact) return 0.0;
-        const double AxleZ = (Origin.Z - RootRestHeight + Radius + Lift) / 100.0;
-        return FMath::Max(0.0, Setup.WheelRadius - (AxleZ - Wheel.GroundZ / 100.0));
-    };
-    const double Lift = HalfBase * FMath::Sin(TerrainPitch);
-    FrontGround.Compression = Compression(FrontGround, Lift);
-    RearGround.Compression = Compression(RearGround, -Lift);
-
-    auto SpringForce = [&](double Deflection, double Rate)
-    {
-        // Linear over the travel, then a progressive bump stop rather than a wall.
-        const double Over = FMath::Max(0.0, Deflection - Travel);
-        return Rate * FMath::Min(Deflection, Travel) + Rate * 12.0 * Over * Over / FMath::Max(1e-4, Travel);
-    };
-    const double FrontSpring = SpringForce(FrontGround.Compression, FrontRate);
-    const double RearSpring = SpringForce(RearGround.Compression, RearRate);
-    const bool bGrounded = FrontGround.Compression > 0.0 || RearGround.Compression > 0.0;
-    const double Damping = 2.0 * SuspensionDampingRatio * FMath::Sqrt((FrontRate + RearRate) * Mass);
-    const double VerticalAccel = (FrontSpring + RearSpring - (bGrounded ? Damping * VerticalVelocity : 0.0))
-                                 / Mass - NB::Gravity;
-    VerticalVelocity += VerticalAccel * DeltaSeconds;
+    // Rigid wheel contact, not a spring under the entire chassis. A sphere probe
+    // finding a road below is only a candidate; it carries load once we reach it.
+    // Half the sampled height difference exactly matches the horizontal probe
+    // separation. sin(atan(grade)) would leave the two wheel planes inconsistent.
+    const double Lift = FrontGround.bContact && RearGround.bContact
+        ? (FrontGround.GroundZ - RearGround.GroundZ) * 0.5
+        : HalfBase * FMath::Tan(TerrainPitch);
+    const double FrontHeight = (FrontGround.GroundZ + RootRestHeight - Lift) / 100.0;
+    const double RearHeight = (RearGround.GroundZ + RootRestHeight + Lift) / 100.0;
+    const bool bHasGround = FrontGround.bContact || RearGround.bContact;
+    const double SupportHeight = FrontGround.bContact && RearGround.bContact
+        ? FMath::Max(FrontHeight, RearHeight)
+        : (FrontGround.bContact ? FrontHeight : RearHeight);
+    const double SlopeVelocity = FrontGround.bContact && RearGround.bContact
+        ? State.Speed * FMath::Tan(TerrainPitch) : 0.0;
+    const auto Support = NB::ResolveWheelSupport(Origin.Z / 100.0, VerticalVelocity,
+        bHasGround, SupportHeight, DeltaSeconds, SlopeVelocity);
+    VerticalVelocity = Support.Velocity;
+    const bool bFrontLoaded = Support.Grounded && FrontGround.bContact
+        && FMath::Abs(Support.Height - FrontHeight) < 0.001;
+    const bool bRearLoaded = Support.Grounded && RearGround.bContact
+        && FMath::Abs(Support.Height - RearHeight) < 0.001;
+    FrontGround.Compression = RearGround.Compression = 0.0;
 
     NB::FSurface Surface;
     ApplyGroundToSurface(Surface);
     SurfaceFriction = Surface.Friction;
-    Surface.FrontLoadScale = FMath::Clamp(FrontSpring / FMath::Max(1.0, FrontStatic), 0.0, 2.0);
-    Surface.RearLoadScale = FMath::Clamp(RearSpring / FMath::Max(1.0, RearStatic), 0.0, 2.0);
+    Surface.FrontLoadScale = bFrontLoaded ? 1.0 : 0.0;
+    Surface.RearLoadScale = bRearLoaded ? 1.0 : 0.0;
 
     NB::FRiderInput Applied = Input;
     if (!bRiderAboard || State.bCrashed)
@@ -249,13 +248,13 @@ void UNammaBicycleMovementComponent::SimulateStep(float DeltaSeconds)
 
     const FVector TravelForward = FRotator(0.f, float(FMath::RadiansToDegrees(State.Yaw)), 0.f).Vector();
     const FVector Delta = TravelForward * float(State.Speed * 100.0 * DeltaSeconds)
-                        + FVector(0, 0, float(VerticalVelocity * 100.0 * DeltaSeconds));
+                        + FVector(0, 0, float(Support.Height * 100.0 - Origin.Z));
     const FRotator NewHeading(0.f, float(FMath::RadiansToDegrees(State.Yaw)), 0.f);
     FHitResult Hit;
     SafeMoveUpdatedComponent(Delta, NewHeading, true, Hit);
     if (Hit.IsValidBlockingHit())
     {
-        SlideAlongSurface(Delta, 1.f - Hit.Time, Hit.Normal, Hit, true);
+        const FHitResult InitialHit = Hit;
         // Only the component of travel into the obstacle is lost; a graze keeps its speed.
         const double Into = -FVector::DotProduct(TravelForward, Hit.Normal);
         const double ImpactSpeed = FMath::Abs(State.Speed) * FMath::Max(0.0, Into);
@@ -268,6 +267,11 @@ void UNammaBicycleMovementComponent::SimulateStep(float DeltaSeconds)
             if (ImpactSpeed > 2.0) State.bCrashed = true;
         }
         if (Hit.Normal.Z > 0.7 && VerticalVelocity < 0.0) VerticalVelocity = 0.0;
+        // Sliding may replace Hit with a second surface; resolve the original
+        // obstacle's momentum first. Do not turn a wall impact into upward travel.
+        FVector SlideDelta = Delta;
+        if (InitialHit.Normal.Z < 0.65f) SlideDelta.Z = FMath::Min(0.0, SlideDelta.Z);
+        SlideAlongSurface(SlideDelta, 1.f - InitialHit.Time, InitialHit.Normal, Hit, true);
     }
     // Publish the pawn velocity: GetVelocity() feeds the camera, the animation graph
     // and the momentum a crash hands to the rider's ragdoll.

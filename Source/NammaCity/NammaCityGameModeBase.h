@@ -15,6 +15,7 @@ class NAMMACITY_API ANammaCityGameModeBase : public AGameModeBase
     GENERATED_BODY()
 public:
     ANammaCityGameModeBase();
+    virtual void BeginPlay() override;
     bool TryPickup();
     bool TryDeliver();
     void RestartDelivery();

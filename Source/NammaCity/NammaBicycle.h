@@ -35,6 +35,7 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
     virtual void UnPossessed() override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     NammaBicycle::FRiderInput GetAppliedControls() const;
@@ -47,6 +48,7 @@ public:
     bool Mount(ANammaPlayerCharacter* Player);
     // bThrown separates a deliberate dismount from a crash, which ragdolls the rider.
     void Dismount(bool bThrown);
+    ANammaPlayerCharacter* GetRider() const;
     bool HasRider() const { return Rider.IsValid(); }
     bool GetRidePose(FNammaRidePose& Out) const;
     UNammaBicycleMovementComponent* GetBicycleMovement() const { return Movement; }
@@ -55,6 +57,7 @@ public:
 
 private:
     friend class FNammaBicycleWorldTest;
+    void TogglePerspective();
     void Pedal(const FInputActionValue& Value);
     void Steer(const FInputActionValue& Value);
     void LookYaw(const FInputActionValue& Value);

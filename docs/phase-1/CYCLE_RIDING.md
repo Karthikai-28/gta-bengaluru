@@ -1,6 +1,6 @@
 # Playable cycle
 
-The repair-shop cycle remains in the world. A second cycle is placed near the safehouse start at (-44.1, -33.7) metres, facing along the street. Each spawn chooses a new saturated frame color; `ColorSeed` can lock a particular color for reproducible tests. Wheels, tires, saddle and drivetrain retain their material colors.
+The repair-shop cycle remains in the world. The generated starter cycle follows the current safehouse spawn and faces along the street. Each spawn chooses a new saturated frame color; `ColorSeed` can lock a particular color for reproducible tests. Wheels, tires, saddle and drivetrain retain their material colors.
 
 ## Implementation plan and scope
 
@@ -12,13 +12,13 @@ The repair-shop cycle remains in the world. A second cycle is placed near the sa
 
 ## Controls
 
-Approach a cycle and press **E**. **W** pedals, **A/D** steers, **Shift** increases rider power. **S** applies the rear brake; **Space** applies the front brake. Use the mouse wheel or **1–6** to change gears. Release W to freewheel. Slow below 5 km/h and press **E** to get off. **X** bails out into ragdoll; X again resets the human. Escape pauses; R restarts from pause.
+Approach a cycle and press **E**. **W** pedals, **A/D** steers, **Shift** increases rider power. **S** applies the rear brake; **Space** applies the front brake. Use the mouse wheel or **1–6** to change gears. Release W to freewheel. Slow below 5 km/h and press **E** to get off. **X** bails out into ragdoll; X again resets the human. **V** switches between first and third person, on foot or riding; the choice survives mounting and dismounting. Ragdoll uses third person. Escape pauses; R restarts from pause.
 
 Mounting and dismounting blend the body over 0.45 seconds. Hands follow the actual rotating handlebar grips. Feet follow opposing pedals, driven by crank angle rather than a time-based animation. The hips stay on the saddle, the torso folds forward, and the left foot plants on the road at rest. Foot/knee and hand/elbow IK keeps anatomical limb lengths fixed. A blocked exit leaves the rider aboard; dismount requires a walkable surface and a clear capsule path. There is no unchecked fallback teleport into nearby geometry.
 
 ## Physics and calculations
 
-The existing SI-unit bicycle solver is retained and corrected. It integrates at **240 Hz**, including suspension, contact queries, motion and collision sweeps. Up to 24 substeps cover a 100 ms frame; longer stalls drop excess time instead of multiplying displacement by an unsimulated full-frame interval. Unreal's Chaos scene supplies ground/wall collision queries and receives collision impulses for movable objects; the human uses Chaos rigid-body ragdoll after a crash.
+The existing SI-unit bicycle solver is retained and corrected. It integrates at **240 Hz**, including wheel contact, motion and collision sweeps. Up to 24 substeps cover a 100 ms frame; longer stalls drop excess time instead of multiplying displacement by an unsimulated full-frame interval. Unreal's Chaos scene supplies ground/wall collision queries and receives collision impulses for movable objects; the human uses Chaos rigid-body ragdoll after a crash.
 
 This is a custom force-based bicycle movement component with an assisted balance controller, **not** a Chaos Vehicles chassis or an unconstrained rigid-body bicycle. The wheels and chain are articulated visuals driven by solved angular state, not separate colliding bodies. The chain uses an ideal tensioner path rather than individually simulated chain-link joints. Those choices keep one human and two cycles feasible on the project's integrated GPU.
 
@@ -42,6 +42,12 @@ Wheels roll at their own solved angular rates, including locking and skidding. T
 
 The tire/contact model is intentionally simplified: wheel support is a sphere sweep rather than a deforming tire, balance is assisted, and mount transitions are procedural rather than motion-captured. The current cassette shift interpolates effective radius while the chain crosses gears; this is not discrete tooth-contact mechanics.
 
+Wheel probes ignore the bicycle and its rider, including during the detached dismount blend. Initial-overlap hits, steep faces and surfaces above the axle are rejected. The rigid roadster now uses unilateral wheel-contact constraints with zero landing restitution. Road penetration is corrected as position, never converted into launch velocity. Gravity remains ballistic in the air, and continuous slopes contribute their tangent velocity. The former chassis spring has been removed; saved hull physics/gravity flags are explicitly disabled so Chaos cannot compete with the custom solver. Collision momentum is resolved before sliding can overwrite the original wall hit.
+
+## Current verification status
+
+The latest host checks pass, including non-bouncing landings at 30/60/120/240 Hz, intermittent trace contacts, curb drops, slope tangents and deep-overlap energy bounds and the existing drivetrain tests. Perspective handover assertions have been added to the Unreal world tests. The latest changes have **not** been compiled or playtested in Unreal: automatic approval review blocked engine execution because the workspace is out of credits. The previous engine run still had dismount and wall-impact test failures; these must be rerun after the fixes. The saved cycle component migration also requires running setup after rebuilding.
+
 ## Reproduce and test
 
 ```sh
@@ -58,3 +64,12 @@ Scripts/launch_game.sh
 Host tests cover chain geometry and closure, power/torque, braking, grip, gearing, coast-down, gradients, determinism and randomized numerical stress. Unreal tests cover world contacts, rider pose, mounting/dismounting, blocked exits, frame-rate comparisons, bumps, skid/endo behavior, and wall impacts. The opt-in Development console command `Namma.Cycle.Playtest` drives real Enhanced Input key events, captures a riding screenshot and exits with a pass/fail status. It is never active during ordinary play or in Shipping builds.
 
 Engine reference: [Epic physics substepping](https://dev.epicgames.com/documentation/en-us/unreal-engine/physics-sub-stepping-in-unreal-engine). The custom bicycle loop explicitly substeps its own forces; merely enabling Chaos substepping would not substep ordinary pawn Tick logic.
+
+## Current-world recovery and material repair
+
+`Scripts/setup_cycle.sh` now force-saves instancing usage on every sandbox material, including reused gold, and moves the generated starter to the current spawn plus 4 m forward and 1.5 m left. With the current layout that is **(-42, -33.5, 0.85) metres**. The repair-shop cycle remains separate. The HUD shows the nearest unoccupied cycle within 80 m. Game mode restores a missing nearby starter only when it finds walkable, unoccupied ground beside PlayerStart.
+
+`Scripts/refresh_playable.sh` performs the full editor build, human import, saved material/world repair, engine tests and packaged-game test in dependency order. Its engine stages are pending execution; editing the Python setup alone does not resave the `.uasset` or `.umap` files and cannot fix an already-packaged executable.
+
+
+The no-bounce solver logs `Cycle contact solver: inelastic wheels v2 (no chassis spring)` at startup. If this line is absent, the running executable does not include the correction. Rebuilding the editor alone does not update the packaged game. Native world tests now also assert stable parked/ridden height, but they still require execution after the build.

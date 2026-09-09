@@ -325,11 +325,16 @@ void ANammaBicycle::BuildBicycle()
 void ANammaBicycle::BeginPlay()
 {
     Super::BeginPlay();
+    // Saved maps may retain a physics checkbox from an older cycle setup.
+    // Only BicycleMovement integrates this hull; Chaos supplies collision queries.
+    Hull->SetSimulatePhysics(false);
+    Hull->SetEnableGravity(false);
+    UE_LOG(LogNammaVehicle, Log, TEXT("Cycle contact solver: inelastic wheels v2 (no chassis spring)"));
     StartTransform = GetActorTransform();
     Movement->ResetTo(StartTransform);
     auto Paint = [](UPrimitiveComponent* Part)
     {
-        if (Part->ComponentTags.Num() == 0) return;
+        if (!Part || Part->ComponentTags.Num() == 0) return;
         const FString Path = FString::Printf(
             TEXT("/Game/NammaCity/Materials/Sandbox/M_Sandbox_%s.M_Sandbox_%s"),
             *Part->ComponentTags[0].ToString(), *Part->ComponentTags[0].ToString());
@@ -345,7 +350,7 @@ void ANammaBicycle::BeginPlay()
         FramePaint = UMaterialInstanceDynamic::Create(Base, this);
         FramePaint->SetVectorParameterValue(TEXT("FrameColor"), FrameColor);
         for (UStaticMeshComponent* Part : Parts)
-            if (Part->ComponentHasTag(TEXT("teal"))) Part->SetMaterial(0, FramePaint);
+            if (Part && Part->ComponentHasTag(TEXT("teal"))) Part->SetMaterial(0, FramePaint);
     }
     Paint(Chain);
 
@@ -727,6 +732,7 @@ void ANammaBicycle::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
     for (int32 Slot = 0; Slot < Movement->GetSetup().GearCount && Slot < 6; ++Slot)
         Input->BindAction(Button(GearKeys[Slot]), ETriggerEvent::Started, this, &ANammaBicycle::SelectGear, Slot);
     Input->BindAction(Button(EKeys::E), ETriggerEvent::Started, this, &ANammaBicycle::RequestDismount);
+    Input->BindAction(Button(EKeys::V), ETriggerEvent::Started, this, &ANammaBicycle::TogglePerspective);
     Input->BindAction(Button(EKeys::X), ETriggerEvent::Started, this, &ANammaBicycle::Bail);
 
     auto* PauseAction = Button(EKeys::Escape);
@@ -861,3 +867,24 @@ FAutoConsoleCommandWithWorld GNammaCycleStatus(
     }));
 }  // namespace
 #endif
+
+void ANammaBicycle::TogglePerspective()
+{
+    if (Rider.IsValid()) Rider->TogglePerspective();
+}
+
+void ANammaBicycle::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
+{
+    if (Rider.IsValid() && Rider->IsFirstPerson())
+    {
+        Rider->CalcCamera(DeltaTime, OutResult);
+        OutResult.Rotation = GetControlRotation();
+        return;
+    }
+    Super::CalcCamera(DeltaTime, OutResult);
+}
+
+ANammaPlayerCharacter* ANammaBicycle::GetRider() const
+{
+    return Rider.Get();
+}
