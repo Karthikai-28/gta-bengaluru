@@ -43,6 +43,10 @@ bool FNammaHumanWorldTest::RunTest(const FString& Parameters)
     auto* Mesh = Human->GetMesh();
     Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
     TestNotNull(TEXT("Human skeletal mesh loaded"), Mesh->GetSkeletalMeshAsset());
+    // The art import can land at the wrong unit scale and still load; a mis-sized
+    // skin detaches every centimetre tuned below from the character wearing it.
+    TestTrue(TEXT("Human mesh is human-sized"), Mesh->GetSkeletalMeshAsset()
+        && FMath::IsWithin(Mesh->GetSkeletalMeshAsset()->GetImportedBounds().BoxExtent.Z, 75.f, 105.f));
     TestNotNull(TEXT("Human animation loaded"), Mesh->GetAnimInstance());
     TestTrue(TEXT("Custom IK proxy used"), Mesh->GetAnimInstance() && Mesh->GetAnimInstance()->IsA<UNammaHumanAnimInstance>());
     TestTrue(TEXT("Skeleton includes hands and knees"), Mesh->GetBoneIndex(TEXT("hand_r")) >= 0 && Mesh->GetBoneIndex(TEXT("calf_l")) >= 0);
@@ -53,6 +57,10 @@ bool FNammaHumanWorldTest::RunTest(const FString& Parameters)
     auto Tick = [&](int32 Count) { for (int32 I = 0; I < Count; ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 60.f); } };
     Tick(30);
     TestTrue(TEXT("Character settles on floor"), Movement->IsMovingOnGround());
+    // Imported bounds can be right while the animated skeleton is not: a scaled
+    // root bone reads as full size at rest and collapses once animation drives it.
+    TestTrue(TEXT("Animated skeleton stands human-sized"),
+        FVector::Dist(Mesh->GetSocketLocation(TEXT("head")), Mesh->GetSocketLocation(TEXT("foot_l"))) > 120.f);
     const FVector StandingPelvis = Mesh->GetSocketLocation(TEXT("pelvis"));
     const FVector StandingFoot = Mesh->GetSocketLocation(TEXT("foot_l"));
     Human->Crouch();

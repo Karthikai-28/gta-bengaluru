@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opt-in keyboard-driven test; saves a riding frame to /tmp/namma-cycle-ride.png.
+# Opt-in keyboard-driven test; saves /tmp/namma-human-stand.png and /tmp/namma-cycle-ride.png.
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 require_unreal
 ARGS=(-RenderOffscreen -unattended -nocrashreports -benchmark -fps=30 -seconds=25

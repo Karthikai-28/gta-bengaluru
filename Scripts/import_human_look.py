@@ -1,6 +1,7 @@
 """Unreal: import the original human on the existing, unmodified Manny skeleton."""
 from pathlib import Path
 import json
+import math
 import unreal
 
 root=Path(__file__).resolve().parents[1]
@@ -36,6 +37,25 @@ mesh=unreal.load_asset('/Game/NammaCity/Characters/Human/SK_NammaMan')
 if not isinstance(mesh,unreal.SkeletalMesh): raise RuntimeError('Human skeletal import failed')
 if mesh.get_editor_property('skeleton') != reference.get_editor_property('skeleton'):
     raise RuntimeError('Human import did not retain Manny skeleton')
+# A mis-scaled or re-posed skin still imports. Hold it to Manny's rig exactly, so
+# the existing animation, IK and physics asset apply to it unchanged.
+height=lambda asset: 2*asset.get_imported_bounds().box_extent.z
+if abs(height(mesh)-height(reference))>30:
+    raise RuntimeError(f'Human is {height(mesh):.0f} cm tall; Manny is {height(reference):.0f} cm')
+def reference_pose(asset):
+    actor=unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.SkeletalMeshActor,unreal.Vector())
+    part=actor.skeletal_mesh_component; part.set_skeletal_mesh_asset(asset)
+    # Parent-bone space, not component space: a scaled root with metre children
+    # matches Manny at rest yet collapses as soon as an animation replaces root.
+    pose={str(part.get_bone_name(i)):part.get_bone_transform(part.get_bone_name(i),unreal.RelativeTransformSpace.RTS_PARENT_BONE_SPACE)
+          for i in range(part.get_num_bones())}
+    actor.destroy_actor(); return pose
+ours,theirs=reference_pose(mesh),reference_pose(reference)
+if set(ours)!=set(theirs): raise RuntimeError(f'Bone set differs from Manny: {sorted(set(ours)^set(theirs))}')
+for name,bone in theirs.items():
+    if (bone.translation-ours[name].translation).length()>0.5 or bone.rotation.angular_distance(ours[name].rotation)>math.radians(0.5) \
+            or (bone.scale3d-ours[name].scale3d).length()>0.01:
+        raise RuntimeError(f'Bind pose of {name} differs from Manny: {ours[name]} vs {bone}')
 if not unreal.EditorAssetLibrary.save_loaded_asset(mesh,only_if_is_dirty=False):
     raise RuntimeError('Could not save human mesh')
 for path in unreal.EditorAssetLibrary.list_assets('/Game/NammaCity/Characters/Human',recursive=True):
@@ -45,4 +65,4 @@ for path in unreal.EditorAssetLibrary.list_assets('/Game/NammaCity/Characters/Hu
         unreal.MaterialEditingLibrary.recompile_material(material)
         if not unreal.EditorAssetLibrary.save_loaded_asset(material,only_if_is_dirty=False):
             raise RuntimeError(f'Could not save {path}')
-unreal.log('NAMMA_HUMAN_LOOK_OK: original human skin uses existing animation and physics rig')
+unreal.log(f'NAMMA_HUMAN_LOOK_OK: {height(mesh):.0f} cm original human skin on the existing animation and physics rig')

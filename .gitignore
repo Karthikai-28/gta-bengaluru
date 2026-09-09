@@ -39,3 +39,6 @@ graphify-out
 # Local build products
 dist/
 artifacts/
+
+# Blender writes .blend1 backups beside the file it saves
+*.blend1

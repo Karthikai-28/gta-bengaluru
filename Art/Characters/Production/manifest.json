@@ -4,17 +4,17 @@
   "vertices": 44264,
   "bones": 89,
   "materials": [
-    "Skin",
-    "Hair",
-    "Shirt",
-    "Seam",
-    "Trousers",
-    "Leather",
-    "Sole",
-    "EyeWhite",
-    "Iris",
-    "Lip",
-    "Button"
+    "M_Skin",
+    "M_Hair",
+    "M_Shirt",
+    "M_Seam",
+    "M_Trousers",
+    "M_Leather",
+    "M_Sole",
+    "M_EyeWhite",
+    "M_Iris",
+    "M_Lip",
+    "M_Button"
   ],
   "reference": "/home/karthi/proj/gta-bengaluru/Saved/HumanLook/Manny.fbx"
 }

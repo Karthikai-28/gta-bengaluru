@@ -3,7 +3,6 @@
 #include "NammaHumanAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
-#include "Misc/PackageName.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
 #include "NammaCityGameModeBase.h"
 #include "NammaInteractable.h"
@@ -79,15 +78,13 @@ ANammaPlayerCharacter::ANammaPlayerCharacter()
         TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
     static ConstructorHelpers::FClassFinder<UAnimInstance> Animation(
         TEXT("/Game/NammaCity/Characters/ABP_NammaHuman"));
-    // The original human skin shares Manny's bind skeleton and physics asset.
-    // Keep the movement test rig available until the art import has been prepared.
-    USkeletalMesh* HumanLook = FPackageName::DoesPackageExist(TEXT("/Game/NammaCity/Characters/Human/SK_NammaMan"))
-        ? LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/NammaCity/Characters/Human/SK_NammaMan.SK_NammaMan"))
-        : nullptr;
-    GetMesh()->SetSkeletalMesh(HumanLook ? HumanLook : Human.Object.Get());
+    GetMesh()->SetSkeletalMesh(Human.Object.Get());
     GetMesh()->SetRelativeLocationAndRotation(FVector(0, 0, -90), FRotator(0, -90, 0));
     GetMesh()->SetAnimInstanceClass(Animation.Class);
     GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
+    // The bicycle's camera boom probes against the rider, a separate actor it
+    // cannot ignore; the player's own body must never push a camera into itself.
+    GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
     PhysicsHandle = CreateDefaultSubobject<UPhysicsHandleComponent>(TEXT("PhysicsHandle"));
     PhysicsHandle->LinearStiffness = 1500.f;
     PhysicsHandle->LinearDamping = 200.f;
@@ -362,6 +359,7 @@ void ANammaPlayerCharacter::RecoverToStart()
         GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::KeepRelativeTransform);
         GetMesh()->SetRelativeTransform(StandingMeshTransform);
         GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
+        GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
         GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
         Boom->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
         Boom->SetRelativeLocation(FVector::ZeroVector);

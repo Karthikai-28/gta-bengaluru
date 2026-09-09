@@ -24,6 +24,11 @@ if opt.reference:
     rig = next(o for o in scene.objects if o.type == 'ARMATURE')
     for obj in list(scene.objects):
         if obj != rig: bpy.data.objects.remove(obj, do_unlink=True)
+    # Blender keeps Unreal's centimetre bone data and hung the rig under a
+    # container scaled by 0.01, which just went. Declare the scene in centimetres
+    # so the export carries those numbers through unchanged: a metre scene would
+    # scale the armature node by 100, and Unreal bakes that into the root bone.
+    scene.unit_settings.scale_length = 0.01
     # Manny's single 'root' bone tops the exported file, where Blender's importer
     # consumes it as the armature object and leaves its children as separate roots.
     # Unreal imports one root only, so put the bone back before anything is skinned.
@@ -84,7 +89,9 @@ for name,color,rough in [('Skin',(.30,.125,.062,1),.70),('Hair',(.012,.009,.007,
     ('Shirt',(.045,.25,.31,1),.88),('Seam',(.022,.13,.17,1),.90),('Trousers',(.025,.037,.065,1),.92),
     ('Leather',(.055,.026,.014,1),.7),('Sole',(.018,.022,.026,1),.9),('EyeWhite',(.74,.72,.65,1),.4),
     ('Iris',(.035,.016,.008,1),.45),('Lip',(.19,.055,.035,1),.8),('Button',(.68,.59,.43,1),.6)]:
-    m=bpy.data.materials.new(name); m.diffuse_color=color; m.use_nodes=True
+    # Unreal names the imported material assets after these, and
+    # Scripts/validate_repository.py requires the M_ prefix on materials.
+    m=bpy.data.materials.new('M_'+name); m.diffuse_color=color; m.use_nodes=True
     bs=m.node_tree.nodes.get('Principled BSDF'); bs.inputs['Base Color'].default_value=color; bs.inputs['Roughness'].default_value=rough
     materials[name]=m
 parts=[]
@@ -215,7 +222,7 @@ for sign in [-1,1]:
 # Weld the shirt and sleeves into a continuous garment. Transfer the original
 # blend weights back by nearest surface vertices after the voxel union.
 from mathutils.kdtree import KDTree
-cloth=[o for o in parts if o.data.materials[0].name == 'Shirt']
+cloth=[o for o in parts if o.data.materials[0] is materials['Shirt']]
 bpy.ops.object.select_all(action='DESELECT')
 for o in cloth: o.select_set(True)
 bpy.context.view_layer.objects.active=shirt;bpy.ops.object.join()
@@ -251,11 +258,13 @@ body.parent=rig;body.matrix_parent_inverse=rig.matrix_world.inverted()
 assert all(len(v.groups)>0 for v in body.data.vertices), 'Unweighted vertex'
 bpy.ops.object.select_all(action='DESELECT');body.select_set(True);rig.select_set(True)
 bpy.context.view_layer.objects.active=rig
+# The centimetre scene makes the default unit handling a no-op: no node scaling,
+# and a header Unreal reads without converting.
 bpy.ops.export_scene.fbx(filepath=str(out/'SK_NammaMan.fbx'),use_selection=True,object_types={'ARMATURE','MESH'},
     add_leaf_bones=False,bake_anim=False,axis_forward='-Y',axis_up='Z',use_armature_deform_only=False)
 (out/'manifest.json').write_text(json.dumps({'style':'Original stylized South Indian adult man',
     'production_skeleton':bool(opt.reference),'vertices':len(body.data.vertices),'bones':len(rig.data.bones),
-    'materials':list(materials),'reference':opt.reference},indent=2)+'\n')
+    'materials':[m.name for m in materials.values()],'reference':opt.reference},indent=2)+'\n')
 # A source-art review render, clearly separate from the Unreal gameplay test.
 scene.render.engine='CYCLES';scene.cycles.samples=24
 scene.render.resolution_x=720;scene.render.resolution_y=900;scene.render.resolution_percentage=100

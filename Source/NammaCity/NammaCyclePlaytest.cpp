@@ -45,57 +45,58 @@ struct FCyclePlaytest : TSharedFromThis<FCyclePlaytest>
         Elapsed += .1f;
         switch (Stage)
         {
-        case 0: if (Elapsed > .7f) { Key(EKeys::E,true); ++Stage; } break;
-        case 1: if (Elapsed > .9f) { Key(EKeys::E,false); ++Stage; } break;
-        case 2: if (Elapsed > 1.5f) { Check(Bike->HasRider() && PC->GetPawn() == Bike.Get(), TEXT("E mounts")); Key(EKeys::W,true); ++Stage; } break;
-        case 3: if (Elapsed > 3.f) { Key(EKeys::Four,true); ++Stage; } break;
-        case 4: if (Elapsed > 3.2f) { Key(EKeys::Four,false); ++Stage; } break;
-        case 5: if (Elapsed > 5.f)
+        case 0: if (Elapsed > .5f) { PC->ConsoleCommand(TEXT("HighResShot 1280x720 filename=/tmp/namma-human-stand.png")); ++Stage; } break;
+        case 1: if (Elapsed > .7f) { Key(EKeys::E,true); ++Stage; } break;
+        case 2: if (Elapsed > .9f) { Key(EKeys::E,false); ++Stage; } break;
+        case 3: if (Elapsed > 1.5f) { Check(Bike->HasRider() && PC->GetPawn() == Bike.Get(), TEXT("E mounts")); Key(EKeys::W,true); ++Stage; } break;
+        case 4: if (Elapsed > 3.f) { Key(EKeys::Four,true); ++Stage; } break;
+        case 5: if (Elapsed > 3.2f) { Key(EKeys::Four,false); ++Stage; } break;
+        case 6: if (Elapsed > 5.f)
         {
             Check(Bike->GetBicycleMovement()->GetSpeedKph() > 5.f, TEXT("W pedals through input mapping"));
             Check(Bike->GetBicycleMovement()->GetState().Gear == 3, TEXT("4 selects gear four"));
             PC->SetControlRotation(FRotator(-10.f, Bike->GetActorRotation().Yaw - 70.f, 0.f));
             ++Stage;
         } break;
-        case 6: if (Elapsed > 5.8f)
+        case 7: if (Elapsed > 5.8f)
         {
             PC->ConsoleCommand(TEXT("HighResShot 1280x720 filename=/tmp/namma-cycle-ride.png"));
             ++Stage;
         } break;
-        case 7: if (Elapsed > 7.f) { Key(EKeys::W,false); Key(EKeys::S,true); ++Stage; } break;
-        case 8: if (Elapsed > 10.5f)
+        case 8: if (Elapsed > 7.f) { Key(EKeys::W,false); Key(EKeys::S,true); ++Stage; } break;
+        case 9: if (Elapsed > 10.5f)
         {
             Check(Bike->GetBicycleMovement()->GetSpeedKph() < 5.f, TEXT("S brakes to dismount speed"));
             Key(EKeys::S,false); Key(EKeys::E,true); ++Stage;
         } break;
-        case 9: if (Elapsed > 10.7f) { Key(EKeys::E,false); ++Stage; } break;
-        case 10: if (Elapsed > 11.5f)
+        case 10: if (Elapsed > 10.7f) { Key(EKeys::E,false); ++Stage; } break;
+        case 11: if (Elapsed > 11.5f)
         {
             Check(!Human->IsRiding() && PC->GetPawn() == Human.Get(), TEXT("E returns control to the human"));
             WalkStart = Human->GetActorLocation(); Key(EKeys::W,true); ++Stage;
         } break;
-        case 11: if (Elapsed > 12.f)
+        case 12: if (Elapsed > 12.f)
         {
             Key(EKeys::W,false);
             Check(FVector::Dist2D(WalkStart, Human->GetActorLocation()) > 30.f, TEXT("walking works after dismount"));
             PC->SetControlRotation((Bike->GetActorLocation() - Human->GetActorLocation()).Rotation());
             ++Stage;
         } break;
-        case 12: if (Elapsed > 12.6f) { Key(EKeys::E,true); ++Stage; } break;
-        case 13: if (Elapsed > 12.8f) { Key(EKeys::E,false); ++Stage; } break;
-        case 14: if (Elapsed > 13.5f)
+        case 13: if (Elapsed > 12.6f) { Key(EKeys::E,true); ++Stage; } break;
+        case 14: if (Elapsed > 12.8f) { Key(EKeys::E,false); ++Stage; } break;
+        case 15: if (Elapsed > 13.5f)
         {
             Check(Bike->HasRider(), TEXT("remount works without stale input contexts"));
             Key(EKeys::X,true); ++Stage;
         } break;
-        case 15: if (Elapsed > 13.7f) { Key(EKeys::X,false); ++Stage; } break;
-        case 16: if (Elapsed > 14.5f)
+        case 16: if (Elapsed > 13.7f) { Key(EKeys::X,false); ++Stage; } break;
+        case 17: if (Elapsed > 14.5f)
         {
             Check(!Bike->HasRider() && Human->GetMesh()->IsSimulatingPhysics(TEXT("pelvis")), TEXT("X bails into Chaos ragdoll"));
             Key(EKeys::X,true); ++Stage;
         } break;
-        case 17: if (Elapsed > 14.7f) { Key(EKeys::X,false); ++Stage; } break;
-        case 18: if (Elapsed > 15.5f)
+        case 18: if (Elapsed > 14.7f) { Key(EKeys::X,false); ++Stage; } break;
+        case 19: if (Elapsed > 15.5f)
         {
             Check(!Human->IsRiding() && Human->GetCharacterMovement()->IsMovingOnGround(), TEXT("X recovery restores walking"));
             const FString Result = Failed ? TEXT("FAIL") : TEXT("PASS");
@@ -109,7 +110,7 @@ struct FCyclePlaytest : TSharedFromThis<FCyclePlaytest>
     }
 };
 FAutoConsoleCommandWithWorld Playtest(TEXT("Namma.Cycle.Playtest"),
-    TEXT("Run a keyboard-input cycle smoke test, capture a riding frame, and exit."),
+    TEXT("Run a keyboard-input cycle smoke test, capture standing and riding frames, and exit."),
     FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
     {
         auto* Human = Cast<ANammaPlayerCharacter>(UGameplayStatics::GetPlayerCharacter(World, 0));
