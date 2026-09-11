@@ -1,0 +1,16 @@
+{
+ "note": "Public boxing and kickboxing tutorials used only as motion reference: each is tracked with MediaPipe Pose and reduced to joint trajectories. The videos are never committed or redistributed; Scripts/build_strike_motion.sh fetches them into Saved/MotionReference on demand.",
+ "clips": [
+  {"id": "nky4BpWiwew", "title": "BOXING 101: The JAB, CROSS, HOOK & UPPERCUT", "teaches": ["jab", "cross", "hook", "uppercut"]},
+  {"id": "71nmi6nGcrY", "title": "How to Throw the Perfect Jab in Boxing", "teaches": ["jab"]},
+  {"id": "JhkqSCahsNY", "title": "Boxing Punches 1-6 Explained: Perfect Techniques", "teaches": ["jab", "cross", "hook", "uppercut"]},
+  {"id": "86Ms0f-hwcQ", "title": "Basic Boxing Combinations: Jab - Cross - Uppercut", "teaches": ["jab", "cross", "uppercut"]},
+  {"id": "oYlNs-dPelY", "title": "Boxing lesson - Jab,uppercut,hook", "teaches": ["jab", "uppercut", "hook"]},
+  {"id": "jw2SN9-9Sg8", "title": "Three Kicks Drill - Front Kick, Roundhouse Kick, Side Kick", "teaches": ["front_kick", "roundhouse_kick"]},
+  {"id": "1rXuvMaK2cw", "title": "Basic Kicks: Roundhouse and Sidekick", "teaches": ["roundhouse_kick"]},
+  {"id": "HagFKce7KDc", "title": "FrontLegKicks FrontKick SideKick RoundKick BackKick1", "teaches": ["front_kick", "roundhouse_kick"]},
+  {"id": "xoxnkg_poU8", "title": "Building a Strong Teep Step by Step with Tawanchai", "teaches": ["front_kick"]},
+  {"id": "BBSV6f2JNEA", "title": "Muay Thai Roundhouse Kick: instructional", "teaches": ["roundhouse_kick"]},
+  {"id": "Y6KQl6WQKQw", "title": "Muay Thai Roundhouse Kick Technique by Samart Payakaroon", "teaches": ["roundhouse_kick"]}
+ ]
+}

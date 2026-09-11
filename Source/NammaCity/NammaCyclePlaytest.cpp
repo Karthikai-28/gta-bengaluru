@@ -29,6 +29,7 @@ struct FCyclePlaytest : TSharedFromThis<FCyclePlaytest>
     int32 Stage = 0;
     bool Failed = false;
     FVector WalkStart;
+    float StandingFootZ = 0.f;
     void Check(bool OK, const TCHAR* Message)
     {
         Failed |= !OK;
@@ -99,6 +100,38 @@ struct FCyclePlaytest : TSharedFromThis<FCyclePlaytest>
         case 19: if (Elapsed > 15.5f)
         {
             Check(!Human->IsRiding() && Human->GetCharacterMovement()->IsMovingOnGround(), TEXT("X recovery restores walking"));
+            // Back to the open spot the standing frame used: next to the bike
+            // the camera boom collides and ends up inside the mesh. A small
+            // swing off the shoulder lets elbows and knees read.
+            Human->SetActorLocation(Bike->GetActorLocation() - Bike->GetActorRightVector() * 180.f + FVector(0,0,30));
+            const float Facing = (Bike->GetActorLocation() - Human->GetActorLocation()).Rotation().Yaw;
+            Human->SetActorRotation(FRotator(0.f, Facing, 0.f));
+            PC->SetControlRotation(FRotator(-12.f, Facing + 35.f, 0.f));
+            ++Stage;
+        } break;
+        // Combat: a jab through the attack key, then a front kick, each
+        // photographed at its template's impact time.
+        case 20: if (Elapsed > 16.6f) { StandingFootZ = Human->GetMesh()->GetSocketLocation(TEXT("foot_l")).Z; Key(EKeys::LeftMouseButton,true); ++Stage; } break;
+        case 21: if (Elapsed > 16.7f)
+        {
+            Key(EKeys::LeftMouseButton,false);
+            Check(Human->IsStriking() && Human->GetCurrentStrike() == NammaHuman::EStrike::Jab, TEXT("LMB opens with a jab"));
+            ++Stage;
+        } break;
+        case 22: if (Elapsed > 16.6f + NammaHuman::StrikeImpactTime(NammaHuman::EStrike::Jab))
+        {
+            PC->ConsoleCommand(TEXT("HighResShot 1280x720 filename=/tmp/namma-human-jab.png"));
+            ++Stage;
+        } break;
+        case 23: if (Elapsed > 18.2f) { Check(Human->BeginStrike(NammaHuman::EStrike::FrontKick, nullptr), TEXT("front kick can be thrown")); ++Stage; } break;
+        case 24: if (Elapsed > 18.2f + NammaHuman::StrikeImpactTime(NammaHuman::EStrike::FrontKick))
+        {
+            Check(Human->GetMesh()->GetSocketLocation(TEXT("foot_l")).Z > StandingFootZ + 35.f, TEXT("front kick lifts the foot"));
+            PC->ConsoleCommand(TEXT("HighResShot 1280x720 filename=/tmp/namma-human-kick.png"));
+            ++Stage;
+        } break;
+        case 25: if (Elapsed > 19.6f)
+        {
             const FString Result = Failed ? TEXT("FAIL") : TEXT("PASS");
             UE_LOG(LogNammaVehicle, Display, TEXT("NAMMA_CYCLE_PLAYTEST_%s"), *Result);
             FFileHelper::SaveStringToFile(Result, *(FPaths::ProjectSavedDir() / TEXT("CyclePlaytest.result")));
@@ -110,7 +143,7 @@ struct FCyclePlaytest : TSharedFromThis<FCyclePlaytest>
     }
 };
 FAutoConsoleCommandWithWorld Playtest(TEXT("Namma.Cycle.Playtest"),
-    TEXT("Run a keyboard-input cycle smoke test, capture standing and riding frames, and exit."),
+    TEXT("Run a keyboard-input cycle smoke test, capture standing, riding, jab and kick frames, and exit."),
     FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
     {
         auto* Human = Cast<ANammaPlayerCharacter>(UGameplayStatics::GetPlayerCharacter(World, 0));

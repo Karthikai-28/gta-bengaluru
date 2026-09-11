@@ -105,24 +105,53 @@ bool FNammaHumanWorldTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Recovery restores movement"), Movement->IsMovingOnGround());
     TestTrue(TEXT("Recovered character is eligible to ride"),Human->CanBeginRiding());
     TestEqual(TEXT("Harmless fall preserves health"),Human->GetHealth(),100.f);
+    // A standing dummy, not a sparring partner: a partner walks back into
+    // punching range after being hit, which would defeat the kicking check.
     auto* Opponent=World->SpawnActor<ANammaPlayerCharacter>(Human->GetActorLocation()+FVector(100,0,0),FRotator(0,180,0));
-    Opponent->SetSparringPartner();
     Tick(10);
-    Human->Punch();
-    Tick(10);
+    using namespace NammaHuman;
+    Human->Attack();
+    TestTrue(TEXT("First strike in punching range is a jab"),Human->IsStriking() && Human->GetCurrentStrike()==EStrike::Jab);
+    Tick(FMath::CeilToInt(float(StrikeImpactTime(EStrike::Jab))*60.f));
     const FVector PunchShoulder=Mesh->GetSocketLocation(TEXT("upperarm_l"));
     const FVector PunchElbow=Mesh->GetSocketLocation(TEXT("lowerarm_l"));
     const FVector PunchWrist=Mesh->GetSocketLocation(TEXT("hand_l"));
     const FVector Knuckles=Mesh->GetSocketLocation(TEXT("middle_01_l"));
+    const FVector Right=Human->GetActorRightVector();
+    AddInfo(FString::Printf(TEXT("Jab at impact: shoulder %s elbow %s wrist %s"),*PunchShoulder.ToString(),*PunchElbow.ToString(),*PunchWrist.ToString()));
     TestTrue(TEXT("Punch wrist stays aligned with the forearm"),FVector::DotProduct(
         (Knuckles-PunchWrist).GetSafeNormal(),(PunchWrist-PunchElbow).GetSafeNormal())>.85f);
     TestTrue(TEXT("Punch keeps a bend at the elbow"),FVector::Dist(PunchShoulder,PunchWrist)
         <.995f*(FVector::Dist(PunchShoulder,PunchElbow)+FVector::Dist(PunchElbow,PunchWrist)));
+    TestTrue(TEXT("Punch reaches forward"),FVector::DotProduct(PunchWrist-PunchShoulder,Human->GetActorForwardVector())>35.f);
+    // The left elbow must not drift across the chest: it stays on its own side
+    // of the fist, and no further inboard of its shoulder than a real guard.
+    TestTrue(TEXT("Left elbow stays outside the line to the fist"),
+        FVector::DotProduct(PunchElbow-PunchShoulder,Right)<=FVector::DotProduct(PunchWrist-PunchShoulder,Right)+3.f);
+    TestTrue(TEXT("Left elbow does not cross inward"),FVector::DotProduct(PunchElbow-PunchShoulder,Right)<12.f);
     Tick(6);
     TestTrue(TEXT("Punch damages a reachable opponent"),Opponent->GetHealth()<100.f);
     const float Stamina=Human->GetStamina();
-    Human->Punch();
+    Human->Attack();
     TestEqual(TEXT("Attack cooldown prevents repeat spending"),Human->GetStamina(),Stamina);
+    // Let the chain lapse, then offer the opponent at kicking range.
+    Tick(120);
+    Opponent->SetActorLocation(Human->GetActorLocation()+Human->GetActorForwardVector()*125.f);
+    Tick(5);
+    const float BeforeKick=Opponent->GetHealth();
+    const float StandingFootZ=Mesh->GetSocketLocation(TEXT("foot_l")).Z;
+    Human->Attack();
+    TestTrue(TEXT("Out of punching range the strike is a front kick"),Human->IsStriking() && Human->GetCurrentStrike()==EStrike::FrontKick);
+    Tick(FMath::CeilToInt(float(StrikeImpactTime(EStrike::FrontKick))*60.f));
+    const FVector KickFoot=Mesh->GetSocketLocation(TEXT("foot_l"));
+    AddInfo(FString::Printf(TEXT("Front kick at impact: foot %s hip %s"),*KickFoot.ToString(),*Mesh->GetSocketLocation(TEXT("thigh_l")).ToString()));
+    TestTrue(TEXT("Kicking foot lifts off the floor"),KickFoot.Z>StandingFootZ+35.f);
+    TestTrue(TEXT("Kicking foot reaches forward"),FVector::DotProduct(KickFoot-Mesh->GetSocketLocation(TEXT("thigh_l")),Human->GetActorForwardVector())>40.f);
+    TestTrue(TEXT("Support foot stays planted"),FMath::Abs(Mesh->GetSocketLocation(TEXT("foot_r")).Z-StandingFootZ)<12.f);
+    Tick(8);
+    TestTrue(TEXT("Kick damages an opponent beyond punching range"),Opponent->GetHealth()<BeforeKick);
+    for (const FTransform& Bone : Mesh->GetComponentSpaceTransforms())
+        if (Bone.ContainsNaN()) { AddError(TEXT("Strike pose contains non-finite bone transform")); break; }
     Opponent->Destroy();
     Tick(60);
     Human->TakeDamage(150.f,FDamageEvent(),nullptr,nullptr);

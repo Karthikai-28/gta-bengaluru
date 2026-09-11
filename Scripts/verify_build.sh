@@ -27,7 +27,7 @@ LOGS="$PROJECT_ROOT/Saved/Verify"
 REPORT="$PROJECT_ROOT/Saved/Automation/Human"
 # The playtest writes these; clear them so a stale frame from an earlier run is
 # never reported as evidence for this one.
-FRAMES=(/tmp/namma-human-stand.png /tmp/namma-cycle-ride.png)
+FRAMES=(/tmp/namma-human-stand.png /tmp/namma-cycle-ride.png /tmp/namma-human-jab.png /tmp/namma-human-kick.png)
 mkdir -p "$LOGS"
 rm -f "${FRAMES[@]}"
 FAILED=()

@@ -4,7 +4,8 @@
 #include "GameFramework/Character.h"
 #include "NammaRidePose.h"
 #include "NammaVitals.h"
-#include "NammaPunchMotion.h"
+#include "NammaStrikeMotion.h"
+#include "NammaCombatBrain.h"
 #include "NammaPlayerCharacter.generated.h"
 
 class ANammaBicycle;
@@ -38,9 +39,20 @@ public:
     bool IsDead() const { return !Vitals.Alive(); }
     float GetRecoveryDepth() const { return 55.f * FMath::Clamp(RecoveryTime / .8f, 0.f, 1.f); }
     bool TryGetUp();
-    bool GetCombatHands(FVector& Left, FVector& Right) const;
-    NammaHuman::FPunchMotion GetPunchMotion() const;
-    bool IsLeftPunch() const { return bLeftPunch; }
+    // The strike or guard pose the animation should show right now. False when
+    // the character is not fighting. Poses come from tracked reference footage;
+    // see NammaStrikeMotion.h.
+    bool GetCombatPose(NammaHuman::FStrikePose& Out) const;
+    bool IsStriking() const { return AttackTime > 0; }
+    bool IsGuarding() const { return bBlocking; }
+    NammaHuman::EStrike GetCurrentStrike() const { return CurrentStrike; }
+    int GetCombo() const { return Combo; }
+    // Extra knockdown pressure beyond the damage itself, for heavy strikes.
+    void AddStagger(float Amount);
+    // Throw a specific strike now, squaring up to Target if given. The attack
+    // key goes through NammaCombatBrain.h instead; this is for scripted moments
+    // and the playtest.
+    bool BeginStrike(NammaHuman::EStrike Strike, ANammaPlayerCharacter* Target);
     void SetSparringPartner();
     bool IsSparringPartner() const { return bSparringPartner; }
     FText GetInteractionPrompt() const;
@@ -58,20 +70,27 @@ private:
     friend class FNammaHumanWorldTest;
     friend class FNammaBicycleWorldTest;
     void ToggleRagdoll();
-    void Punch();
+    // One attack key: the situation picks the strike (NammaCombatBrain.h).
+    void Attack();
+    ANammaPlayerCharacter* FindCombatTarget() const;
+    NammaHuman::FCombatSituation ReadSituation(const ANammaPlayerCharacter* Target) const;
     void BlockStart();
     void BlockEnd();
     void TickCombat(float DeltaSeconds);
     void Strike();
     bool CanFight() const;
     NammaHuman::FVitals Vitals;
+    NammaHuman::EStrike CurrentStrike = NammaHuman::EStrike::Jab;
+    bool bMirrorStance = false;   // southpaw: templates reflected, right limb leads
     float AttackTime = 0.f;
+    float ComboTime = 0.f;        // guard held and chain continues while this runs
+    int Combo = 0;
+    float ThinkTime = 0.f;        // sparring partner's pause between decisions
     float RecoveryTime = 0.f;
     float DownTime = 0.f;
     float SettledTime = 0.f;
     bool bStrikeSpent = false;
     bool bBlocking = false;
-    bool bLeftPunch = false;
     bool bSparringPartner = false;
     TWeakObjectPtr<ANammaPlayerCharacter> CombatTarget;
     FVector CombatHome = FVector::ZeroVector;

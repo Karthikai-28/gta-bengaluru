@@ -87,7 +87,7 @@ void ANammaSandboxHUD::DrawHUD()
     if (!bRiding)
     {
         DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
-        DrawText(TEXT("WASD Move   Mouse Look   V View   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab   LMB Punch   RMB Block   X Fall/Get up   Esc Pause"), FLinearColor::White, 32, H - 45);
+        DrawText(TEXT("WASD Move   Mouse Look   V View   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab   LMB Attack   RMB Block   X Fall/Get up   Esc Pause"), FLinearColor::White, 32, H - 45);
         DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
         DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
         const ANammaBicycle* NearestCycle = nullptr;

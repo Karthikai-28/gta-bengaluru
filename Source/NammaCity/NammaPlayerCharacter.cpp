@@ -174,7 +174,7 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
     Input->BindAction(Button(EKeys::F), ETriggerEvent::Started, this, &ANammaPlayerCharacter::GrabOrRelease);
     Input->BindAction(Button(EKeys::V), ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePerspective);
     Input->BindAction(Button(EKeys::X), ETriggerEvent::Started, this, &ANammaPlayerCharacter::ToggleRagdoll);
-    Input->BindAction(Button(EKeys::LeftMouseButton), ETriggerEvent::Started, this, &ANammaPlayerCharacter::Punch);
+    Input->BindAction(Button(EKeys::LeftMouseButton), ETriggerEvent::Started, this, &ANammaPlayerCharacter::Attack);
     auto* Guard = Button(EKeys::RightMouseButton);
     Input->BindAction(Guard, ETriggerEvent::Started, this, &ANammaPlayerCharacter::BlockStart);
     Input->BindAction(Guard, ETriggerEvent::Completed, this, &ANammaPlayerCharacter::BlockEnd);

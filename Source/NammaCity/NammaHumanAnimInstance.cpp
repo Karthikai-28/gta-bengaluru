@@ -11,10 +11,11 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
     float CrouchDepth = 0.f;
     float ReachAlpha = 0.f;
     float CombatAlpha = 0.f;
-    FVector CombatHands[2] = {FVector::ZeroVector,FVector::ZeroVector};
-    float PunchExtension=0.f;
-    float PunchTwist=0.f;
-    int PunchSide=0;
+    // The strike or guard from the reference-footage templates: limb targets
+    // relative to their root joint in limb lengths, torso angles in degrees.
+    // Converted to component space during Evaluate, from the pose being built,
+    // so the fist follows the shoulder the torso twist has just moved.
+    NammaHuman::FStrikePose Strike;
     FVector HandTarget = FVector::ZeroVector;
     // Riding targets, in mesh component space. The bicycle reports where its pedals
     // and grips actually are, so the legs follow the crank the drivetrain is turning
@@ -35,17 +36,13 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
         const float Blend = 1.f - FMath::Exp(-12.f * DeltaSeconds);
         const USkeletalMeshComponent* Mesh = Instance->GetSkelMeshComponent();
         CrouchDepth = FMath::Lerp(CrouchDepth, FMath::Max(Character->bIsCrouched ? 60.f : 0.f, Character->GetRecoveryDepth()), Blend);
-        FVector Hands[2];
-        const bool bCombat=Character->GetCombatHands(Hands[0],Hands[1]);
-        const auto Motion=Character->GetPunchMotion();
-        // Follow the authored timing curve directly: a 12 Hz smoothing filter
+        NammaHuman::FStrikePose Pose;
+        const bool bCombat=Character->GetCombatPose(Pose);
+        // Follow the template's own timing directly: a 12 Hz smoothing filter
         // blunted the fast strike and made the hand drift forward like a push.
-        CombatAlpha=bCombat ? float(Motion.Weight) : FMath::Lerp(CombatAlpha,0.f,Blend);
-        PunchExtension=float(Motion.Extension);
-        PunchTwist=float(Motion.Twist);
-        PunchSide=Character->IsLeftPunch() ? 0 : 1;
-        if (bCombat) for (int Side=0;Side<2;++Side)
-            CombatHands[Side]=Mesh->GetComponentTransform().InverseTransformPosition(Hands[Side]);
+        // Out of combat the last pose (the guard) fades instead.
+        if (bCombat) Strike=Pose;
+        CombatAlpha=bCombat ? float(Pose.Weight) : FMath::Lerp(CombatAlpha,0.f,Blend);
         FVector Target;
         const bool bReach = Character->GetHandTarget(Target);
         ReachAlpha = FMath::Lerp(ReachAlpha, bReach ? 1.f : 0.f, Blend);
@@ -93,8 +90,13 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
         Transforms.Emplace(PelvisIndex, Pelvis);
         Pose.LocalBlendCSBoneTransforms(Transforms, 1.f);
 
+        // Pole is an offset from the upper joint, or an absolute component-space
+        // position when bAbsolutePole is set (the tracked elbow or knee itself).
+        // bCarryEnd keeps the end bone's angle to the lower bone, so a kicking
+        // foot follows its shin instead of staying flat as if planted.
         auto SolveLimb = [&](const TCHAR* UpperName, const TCHAR* LowerName, const TCHAR* EndName,
-                             const FVector& Goal, const FVector& PoleOffset, float Alpha, float ReachLimit=1.f) {
+                             const FVector& Goal, const FVector& Pole, float Alpha, float ReachLimit=1.f,
+                             bool bAbsolutePole=false, bool bCarryEnd=false) {
             const auto UpperIndex = Index(UpperName);
             const auto LowerIndex = Index(LowerName);
             const auto EndIndex = Index(EndName);
@@ -102,6 +104,7 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
             FTransform Upper = Pose.GetComponentSpaceTransform(UpperIndex);
             FTransform Lower = Pose.GetComponentSpaceTransform(LowerIndex);
             FTransform End = Pose.GetComponentSpaceTransform(EndIndex);
+            const FQuat LowerBefore = Lower.GetRotation();
             FVector Target = FMath::Lerp(End.GetLocation(), Goal, Alpha);
             if (ReachLimit<1.f)
             {
@@ -109,8 +112,10 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
                     +FVector::Dist(Lower.GetLocation(),End.GetLocation());
                 Target=Upper.GetLocation()+(Target-Upper.GetLocation()).GetClampedToMaxSize(Length*ReachLimit);
             }
-            AnimationCore::SolveTwoBoneIK(Upper, Lower, End, Upper.GetLocation() + PoleOffset,
+            AnimationCore::SolveTwoBoneIK(Upper, Lower, End, bAbsolutePole ? Pole : Upper.GetLocation() + Pole,
                 Target, false, 1.0, 1.0);
+            if (bCarryEnd)
+                End.SetRotation(FQuat::Slerp(End.GetRotation(),(Lower.GetRotation()*LowerBefore.Inverse()*End.GetRotation()).GetNormalized(),Alpha));
             Transforms.Reset();
             Transforms.Emplace(UpperIndex, Upper);
             Transforms.Emplace(LowerIndex, Lower);
@@ -141,8 +146,10 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
             }
             SolveLimb(TEXT("thigh_l"), TEXT("calf_l"), TEXT("foot_l"), RideFoot[0], FVector(0, 100, 0), RideAlpha);
             SolveLimb(TEXT("thigh_r"), TEXT("calf_r"), TEXT("foot_r"), RideFoot[1], FVector(0, 100, 0), RideAlpha);
-            SolveLimb(TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"), RideHand[0], FVector(-60, 0, -50), RideAlpha);
-            SolveLimb(TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"), RideHand[1], FVector(60, 0, -50), RideAlpha);
+            // Component +X is the character's left, so the left elbow's pole
+            // goes to +X: outward and down, not across the chest.
+            SolveLimb(TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"), RideHand[0], FVector(60, 0, -50), RideAlpha);
+            SolveLimb(TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"), RideHand[1], FVector(-60, 0, -50), RideAlpha);
         }
         else if (CombatAlpha > 0.01f)
         {
@@ -154,26 +161,81 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
                 Transforms.Reset();Transforms.Emplace(Bone,T);
                 Pose.LocalBlendCSBoneTransforms(Transforms,Weight);
             };
-            const float SideSign=PunchSide==0 ? -1.f : 1.f;
-            const float Twist=FMath::DegreesToRadians(SideSign*14.f*PunchTwist);
-            for (const TCHAR* Spine : {TEXT("spine_01"),TEXT("spine_02"),TEXT("spine_03")})
-                RotateBone(Index(Spine),FQuat(FVector::ZAxisVector,Twist/3.f),CombatAlpha);
-            RotateBone(Index(TEXT("head")),FQuat(FVector::ZAxisVector,-Twist*.75f),CombatAlpha);
-            RotateBone(Index(PunchSide==0 ? TEXT("clavicle_l") : TEXT("clavicle_r")),
-                FQuat(FVector::ZAxisVector,FMath::DegreesToRadians(SideSign*5.f*PunchExtension)),CombatAlpha);
-            for (int Side=0;Side<2;++Side)
+            // Manny's component space: the character faces +Y, its left is +X.
+            // Template vectors are (forward, right, up) in limb lengths.
+            const FVector Forward(0,1,0),Right(-1,0,0),Up(0,0,1);
+            auto Place=[&](const NammaHuman::FStrikeVector& V,const FVector& Origin,float Scale)
             {
-                const bool Left=Side==0;
+                return Origin+(Forward*float(V.X)+Right*float(V.Y)+Up*float(V.Z))*Scale;
+            };
+            auto LimbLength=[&](const TCHAR* A,const TCHAR* B,const TCHAR* C)
+            {
+                const auto IA=Index(A),IB=Index(B),IC=Index(C);
+                if (IA==INDEX_NONE || IB==INDEX_NONE || IC==INDEX_NONE) return 0.f;
+                return float(FVector::Dist(Pose.GetComponentSpaceTransform(IA).GetLocation(),Pose.GetComponentSpaceTransform(IB).GetLocation())
+                    +FVector::Dist(Pose.GetComponentSpaceTransform(IB).GetLocation(),Pose.GetComponentSpaceTransform(IC).GetLocation()));
+            };
+            const int Side=Strike.StrikingSide;
+            const bool bKick=Strike.bKick;
+            const TCHAR* ThighNames[]={TEXT("thigh_l"),TEXT("thigh_r")};
+            const TCHAR* CalfNames[]={TEXT("calf_l"),TEXT("calf_r")};
+            const float Radians=PI/180.f*CombatAlpha;
+            // 1. Pelvis: the hips shift over the support leg during a kick and
+            //    turn into every strike; the legs are re-solved onto the planted
+            //    feet afterwards, so only the kicking foot leaves the floor.
+            const float LegLength=LimbLength(ThighNames[Side],CalfNames[Side],FootNames[Side]);
+            {
+                FTransform PelvisT=Pose.GetComponentSpaceTransform(PelvisIndex);
+                PelvisT.AddToTranslation((Forward*float(Strike.Pelvis.X)+Right*float(Strike.Pelvis.Y)+Up*float(Strike.Pelvis.Z))*LegLength*CombatAlpha);
+                PelvisT.SetRotation((FQuat(FVector::ZAxisVector,float(Strike.PelvisYaw)*Radians)*PelvisT.GetRotation()).GetNormalized());
+                Transforms.Reset();Transforms.Emplace(PelvisIndex,PelvisT);
+                Pose.LocalBlendCSBoneTransforms(Transforms,1.f);
+            }
+            for (int32 Leg=0;Leg<2;++Leg)
+                if (!bKick || Leg!=Side)
+                    SolveLimb(ThighNames[Leg],CalfNames[Leg],FootNames[Leg],Feet[Leg],FVector(0,100,0),1.f);
+            // 2. Torso: the shoulders turn past the hips, lean into the strike,
+            //    and the head follows the target.
+            for (const TCHAR* Spine : {TEXT("spine_01"),TEXT("spine_02"),TEXT("spine_03")})
+            {
+                const FQuat Twist(FVector::ZAxisVector,float(Strike.SpineTwist)*Radians/3.f);
+                const FQuat Lean(FVector::XAxisVector,-float(Strike.LeanForward)*Radians/3.f);
+                const FQuat Tilt(FVector::YAxisVector,-float(Strike.LeanSide)*Radians/3.f);
+                RotateBone(Index(Spine),(Twist*Lean*Tilt).GetNormalized(),1.f);
+            }
+            RotateBone(Index(TEXT("head")),FQuat(FVector::ZAxisVector,float(Strike.HeadYaw)*Radians),1.f);
+            // 3. The kicking leg: foot and knee where the footage put them.
+            if (bKick)
+            {
+                const auto HipIndex=Index(ThighNames[Side]);
+                if (HipIndex!=INDEX_NONE)
+                {
+                    const FVector Hip=Pose.GetComponentSpaceTransform(HipIndex).GetLocation();
+                    SolveLimb(ThighNames[Side],CalfNames[Side],FootNames[Side],Place(Strike.Foot,Hip,LegLength),
+                        Place(Strike.Knee,Hip,LegLength),CombatAlpha,.98f,true,true);
+                }
+            }
+            // 4. Arms: the striking arm and the guard arm, each solved with its
+            //    own elbow as the pole so the elbow goes where the boxer's went.
+            for (int Arm=0;Arm<2;++Arm)
+            {
+                const bool Left=Arm==0;
                 const float Sign=Left ? -1.f : 1.f;
-                const float Extension=Side==PunchSide ? PunchExtension : 0.f;
-                // Elbows stay down and close to the ribs, then track behind the
-                // fist. Retain two percent reach margin to avoid a locked/flipping elbow.
-                const FVector Pole(Sign*(8.f+5.f*Extension),15.f,-45.f+20.f*Extension);
-                SolveLimb(Left ? TEXT("upperarm_l") : TEXT("upperarm_r"),
-                    Left ? TEXT("lowerarm_l") : TEXT("lowerarm_r"),
-                    Left ? TEXT("hand_l") : TEXT("hand_r"),CombatHands[Side],Pole,CombatAlpha,.98f);
-                const auto Hand=Index(Left ? TEXT("hand_l") : TEXT("hand_r"));
-                const auto Elbow=Index(Left ? TEXT("lowerarm_l") : TEXT("lowerarm_r"));
+                const bool bStrikingArm=Arm==Side;
+                const float Extension=bStrikingArm && !bKick ? float(Strike.Extension) : 0.f;
+                const TCHAR* UpperName=Left ? TEXT("upperarm_l") : TEXT("upperarm_r");
+                const TCHAR* LowerName=Left ? TEXT("lowerarm_l") : TEXT("lowerarm_r");
+                const TCHAR* HandName=Left ? TEXT("hand_l") : TEXT("hand_r");
+                const auto Shoulder=Index(UpperName);
+                if (Shoulder==INDEX_NONE) continue;
+                const FVector ShoulderAt=Pose.GetComponentSpaceTransform(Shoulder).GetLocation();
+                const float ArmLength=LimbLength(UpperName,LowerName,HandName);
+                const NammaHuman::FStrikeVector& FistV=bStrikingArm ? Strike.Fist : Strike.GuardFist;
+                const NammaHuman::FStrikeVector& ElbowV=bStrikingArm ? Strike.Elbow : Strike.GuardElbow;
+                SolveLimb(UpperName,LowerName,HandName,Place(FistV,ShoulderAt,ArmLength),
+                    Place(ElbowV,ShoulderAt,ArmLength),CombatAlpha,.98f,true);
+                const auto Hand=Index(HandName);
+                const auto Elbow=Index(LowerName);
                 const auto Middle=Index(Left ? TEXT("middle_01_l") : TEXT("middle_01_r"));
                 const auto Forefinger=Index(Left ? TEXT("index_01_l") : TEXT("index_01_r"));
                 const auto Pinky=Index(Left ? TEXT("pinky_01_l") : TEXT("pinky_01_r"));
@@ -251,7 +313,7 @@ struct FNammaHumanAnimProxy : FAnimInstanceProxy
         }
         else if (ReachAlpha > 0.01f)
             SolveLimb(TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"), HandTarget,
-                FVector(60, 0, -50), ReachAlpha);
+                FVector(-60, 0, -50), ReachAlpha);
         FCSPose<FCompactPose>::ConvertComponentPosesToLocalPoses(Pose, Output.Pose);
         return true;
     }
