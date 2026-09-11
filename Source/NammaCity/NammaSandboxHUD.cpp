@@ -4,6 +4,7 @@
 #include "NammaCityGameModeBase.h"
 #include "NammaPlayerCharacter.h"
 #include "Engine/Canvas.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "NammaDeliveryStation.h"
@@ -57,6 +58,28 @@ void ANammaSandboxHUD::DrawHUD()
     const auto* Player = Cast<ANammaPlayerCharacter>(PlayerOwner->GetPawn());
     if (!Mode || (!Player && !bRiding)) return;
     const FLinearColor Gold(1.f, 0.76f, 0.3f);
+    const auto* Bike=Cast<ANammaBicycle>(PlayerOwner->GetPawn());
+    const ANammaPlayerCharacter* Human=Player ? Player : (Bike ? Bike->GetRider() : nullptr);
+    if (Human)
+    {
+        DrawRect(FLinearColor(.015f,.02f,.025f,.9f),20,132,280,66);
+        DrawRect(FLinearColor(.2f,.05f,.04f,1),32,147,250,12);
+        DrawRect(FLinearColor(.78f,.2f,.14f,1),32,147,2.5f*Human->GetHealth(),12);
+        DrawText(FString::Printf(TEXT("Health %.0f   Stamina %.0f"),Human->GetHealth(),Human->GetStamina()),FLinearColor::White,32,170);
+        DrawRect(FLinearColor(.25f,.65f,.5f,1),32,193,2.5f*Human->GetStamina(),4);
+        if (Human->IsDead()) DrawText(TEXT("Knocked out — R to respawn"),Gold,W/2-150,H/2+75,nullptr,1.3f);
+        else if (Human->IsDown()) DrawText(TEXT("Down — settle, then X to get up (or wait)"),Gold,W/2-210,H/2+75);
+        else if (Human->GetRecoveryDepth()>0) DrawText(TEXT("Getting up..."),Gold,W/2-75,H/2+75);
+    }
+    for (TActorIterator<ANammaPlayerCharacter> It(GetWorld());It;++It)
+    {
+        if (!It->IsSparringPartner()) continue;
+        FVector2D Screen;
+        const FVector Location=It->IsDown() ? It->GetMesh()->GetSocketLocation(TEXT("pelvis")) : It->GetActorLocation();
+        if (PlayerOwner->ProjectWorldLocationToScreen(Location+FVector(0,0,110),Screen))
+            DrawText(FString::Printf(TEXT("SPARRING  %.0f HP"),It->GetHealth()),Gold,Screen.X-65,Screen.Y);
+    }
+
     DrawRect(FLinearColor(0.02f, 0.04f, 0.055f, 0.9f), 20, 20, FMath::Min(W - 40, 760.f), 100);
     DrawText(TEXT("NAMMA CITY  /  FIRST DELIVERY"), Gold, 36, 30, nullptr, 1.35f);
     DrawText(ObjectiveText.ToString(), FLinearColor::White, 36, 62);
@@ -64,7 +87,7 @@ void ANammaSandboxHUD::DrawHUD()
     if (!bRiding)
     {
         DrawRect(FLinearColor(0, 0, 0, 0.8f), 20, H - 54, W - 40, 34);
-        DrawText(TEXT("WASD Move   Mouse Look   V View   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab/Drop   X Ragdoll/Reset   Esc Pause"), FLinearColor::White, 32, H - 45);
+        DrawText(TEXT("WASD Move   Mouse Look   V View   Shift Sprint   Space Jump   C Crouch   E Interact/Ride   F Grab   LMB Punch   RMB Block   X Fall/Get up   Esc Pause"), FLinearColor::White, 32, H - 45);
         DrawLine(W / 2 - 5, H / 2, W / 2 + 5, H / 2, FLinearColor::White);
         DrawLine(W / 2, H / 2 - 5, W / 2, H / 2 + 5, FLinearColor::White);
         const ANammaBicycle* NearestCycle = nullptr;

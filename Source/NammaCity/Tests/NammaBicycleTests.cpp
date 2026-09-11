@@ -139,6 +139,14 @@ bool FNammaBicycleWorldTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Rider's hips sit on the saddle"),
         FVector::Dist(Human->GetMesh()->GetSocketLocation(TEXT("pelvis")), Pose.Saddle) < 22.f);
 
+    // Recover locally after a stationary fall, then remount the same vehicle.
+    Bicycle->Dismount(true);
+    Tick(210);
+    TestFalse(TEXT("Nonfatal fall recovers without a spawn reset"),Human->IsDown());
+    TestTrue(TEXT("Recovered rider stays beside the cycle"),FVector::Dist2D(Human->GetActorLocation(),Bicycle->GetActorLocation())<260.f);
+    TestTrue(TEXT("Recovered character can ride the same cycle again"),Bicycle->Mount(Human));
+    Tick(30);
+
     // ---- pedalling ----------------------------------------------------------
     Place(0.f);
     Bicycle->Controls.Pedal = 1.0;

@@ -35,6 +35,8 @@ bool ANammaCityGameModeBase::TryDeliver()
 void ANammaCityGameModeBase::RestartDelivery()
 {
     Delivery.Reset();
+    for (TActorIterator<ANammaPlayerCharacter> It(GetWorld());It;++It)
+        if (It->IsSparringPartner()) It->RecoverToStart();
     UE_LOG(LogNammaDelivery, Log, TEXT("Delivery restarted"));
     if (auto* Player = Cast<ANammaPlayerCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0)))
         Player->RecoverToStart();
@@ -62,6 +64,25 @@ void ANammaCityGameModeBase::BeginPlay()
     TActorIterator<APlayerStart> StartIt(GetWorld());
     APlayerStart* Start = StartIt ? *StartIt : nullptr;
     if (!Start) return;
+    // A passive training partner lets the player try combat without a quest.
+    // They retaliate only after being hit and do not chase riders across the city.
+    bool bHasPartner=false;
+    for (TActorIterator<ANammaPlayerCharacter> It(GetWorld());It;++It)
+        if (It->IsSparringPartner()) { bHasPartner=true; break; }
+    if (!bHasPartner)
+    {
+        const FVector Point=Start->GetActorLocation()+Start->GetActorForwardVector()*950.f;
+        FHitResult Ground;
+        FCollisionQueryParams Query(SCENE_QUERY_STAT(NammaSparringSpawn),false,Start);
+        if (GetWorld()->LineTraceSingleByChannel(Ground,Point+FVector(0,0,200),Point-FVector(0,0,400),ECC_Visibility,Query)
+            && Ground.ImpactNormal.Z>.9f)
+        {
+            FActorSpawnParameters Params;
+            Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+            if (auto* Partner=GetWorld()->SpawnActor<ANammaPlayerCharacter>(Ground.ImpactPoint+FVector(0,0,93),
+                FRotator(0,Start->GetActorRotation().Yaw+180.f,0),Params)) Partner->SetSparringPartner();
+        }
+    }
     for (TActorIterator<ANammaBicycle> It(GetWorld()); It; ++It)
         if (FVector::Dist2D(It->GetActorLocation(), Start->GetActorLocation()) < 800.f
             && FMath::Abs(It->GetActorLocation().Z - Start->GetActorLocation().Z) < 300.f) return;

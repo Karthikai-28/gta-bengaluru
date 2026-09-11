@@ -174,6 +174,11 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
     Input->BindAction(Button(EKeys::F), ETriggerEvent::Started, this, &ANammaPlayerCharacter::GrabOrRelease);
     Input->BindAction(Button(EKeys::V), ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePerspective);
     Input->BindAction(Button(EKeys::X), ETriggerEvent::Started, this, &ANammaPlayerCharacter::ToggleRagdoll);
+    Input->BindAction(Button(EKeys::LeftMouseButton), ETriggerEvent::Started, this, &ANammaPlayerCharacter::Punch);
+    auto* Guard = Button(EKeys::RightMouseButton);
+    Input->BindAction(Guard, ETriggerEvent::Started, this, &ANammaPlayerCharacter::BlockStart);
+    Input->BindAction(Guard, ETriggerEvent::Completed, this, &ANammaPlayerCharacter::BlockEnd);
+    Input->BindAction(Guard, ETriggerEvent::Canceled, this, &ANammaPlayerCharacter::BlockEnd);
     auto* PauseAction = Button(EKeys::Escape);
     PauseAction->bTriggerWhenPaused = true;
     Input->BindAction(PauseAction, ETriggerEvent::Started, this, &ANammaPlayerCharacter::TogglePause);
@@ -192,19 +197,19 @@ void ANammaPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 bool ANammaPlayerCharacter::IsPaused() const { return UGameplayStatics::IsGamePaused(this); }
 void ANammaPlayerCharacter::Forward(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && RecoveryTime <= 0 && Vitals.Alive() && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::X), V.Get<float>());
 }
 void ANammaPlayerCharacter::Right(const FInputActionValue& V)
 {
-    if (Controller && !IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
+    if (Controller && !IsPaused() && !bRagdoll && RecoveryTime <= 0 && Vitals.Alive() && !bTraversing && !IsRiding()) AddMovementInput(FRotationMatrix(FRotator(0, Controller->GetControlRotation().Yaw, 0)).GetUnitAxis(EAxis::Y), V.Get<float>());
 }
 void ANammaPlayerCharacter::LookYaw(const FInputActionValue& V) { if (!IsPaused()) AddControllerYawInput(V.Get<float>()); }
 void ANammaPlayerCharacter::LookPitch(const FInputActionValue& V) { if (!IsPaused()) AddControllerPitchInput(-V.Get<float>()); }
-void ANammaPlayerCharacter::SprintStart() { if (!IsPaused()) GetCharacterMovement()->MaxWalkSpeed = 600; }
+void ANammaPlayerCharacter::SprintStart() { if (!IsPaused() && Vitals.Alive() && !bRagdoll && RecoveryTime<=0 && !bBlocking && AttackTime<=0) GetCharacterMovement()->MaxWalkSpeed = 600; }
 void ANammaPlayerCharacter::SprintEnd() { GetCharacterMovement()->MaxWalkSpeed = 350; }
-void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !IsRiding() && !TryTraversal()) Jump(); }
+void ANammaPlayerCharacter::JumpStart() { if (!IsPaused() && !bRagdoll && RecoveryTime <= 0 && Vitals.Alive() && !bTraversing && !IsRiding() && !TryTraversal()) Jump(); }
 void ANammaPlayerCharacter::JumpEnd() { StopJumping(); }
-void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bRagdoll && !bTraversing && !IsRiding()) Crouch(); }
+void ANammaPlayerCharacter::CrouchStart() { if (!IsPaused() && !bRagdoll && RecoveryTime <= 0 && Vitals.Alive() && !bTraversing && !IsRiding()) Crouch(); }
 void ANammaPlayerCharacter::CrouchEnd() { UnCrouch(); }
 
 // ACharacter preserves mesh height relative to the floor when the capsule shrinks.
@@ -334,10 +339,12 @@ void ANammaPlayerCharacter::TogglePause()
 {
     SprintEnd();
     StopJumping();
+    BlockEnd();
     UGameplayStatics::SetGamePaused(this, !IsPaused());
 }
 void ANammaPlayerCharacter::RestartDelivery()
 {
+    if (IsDead()) { UGameplayStatics::SetGamePaused(this,false); RecoverToStart(); return; }
     auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
     if (Mode && (IsPaused() || Mode->GetDeliveryStage() == ENammaDeliveryStage::Complete))
     {
@@ -352,6 +359,10 @@ void ANammaPlayerCharacter::Quit()
 void ANammaPlayerCharacter::RecoverToStart()
 {
     if (ANammaBicycle* Bicycle = Riding.Get()) Bicycle->Dismount(true);
+    Vitals = NammaHuman::FVitals();
+    RecoveryTime = AttackTime = 0.f;
+    bBlocking = false;
+    CombatTarget.Reset();
     ReleaseObject();
     if (bRagdoll)
     {
@@ -379,6 +390,7 @@ void ANammaPlayerCharacter::RecoverToStart()
 void ANammaPlayerCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    TickCombat(DeltaSeconds);
     TickTraversal(DeltaSeconds);
     TickHeldObject();
     if (bRagdoll)
@@ -387,7 +399,7 @@ void ANammaPlayerCharacter::Tick(float DeltaSeconds)
         return;
     }
     const auto* Mode = GetWorld()->GetAuthGameMode<ANammaCityGameModeBase>();
-    Parcel->SetVisibility(Mode && Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying);
+    Parcel->SetVisibility(!bSparringPartner && Mode && Mode->GetDeliveryStage() == ENammaDeliveryStage::Carrying);
     if (IsRiding()) return;
     const FVector P = GetActorLocation();
     if (P.Z < -500 || FMath::Abs(P.X) > 6200 || FMath::Abs(P.Y) > 6200) RecoverToStart();
@@ -439,7 +451,7 @@ FText ANammaPlayerCharacter::GetInteractionPrompt() const
 }
 void ANammaPlayerCharacter::Interact()
 {
-    if (IsPaused() || bRagdoll || bTraversing || IsRiding()) return;
+    if (IsPaused() || bRagdoll || RecoveryTime > 0 || !Vitals.Alive() || bTraversing || IsRiding()) return;
     UpdateFocus();
     if (auto* Target = Cast<INammaInteractable>(FocusedActor.Get())) Target->Interact(this);
 }
@@ -464,7 +476,7 @@ void ANammaPlayerCharacter::ReleaseObject()
 
 void ANammaPlayerCharacter::GrabOrRelease()
 {
-    if (IsPaused() || bRagdoll || bTraversing || IsRiding()) return;
+    if (IsPaused() || bRagdoll || RecoveryTime > 0 || !Vitals.Alive() || bTraversing || IsRiding()) return;
     if (PhysicsHandle->GetGrabbedComponent()) { ReleaseObject(); return; }
     const FVector Start = GetMesh()->GetSocketLocation(TEXT("spine_03"));
     const FVector Direction = GetControlRotation().Vector();
@@ -501,8 +513,8 @@ void ANammaPlayerCharacter::TickHeldObject()
 void ANammaPlayerCharacter::ToggleRagdoll()
 {
     if (IsPaused() || IsRiding()) return;
-    // Recovery is an explicit safe reset, not a fabricated get-up animation.
-    if (bRagdoll) { RecoverToStart(); return; }
+    // Recover beside the fallen body; death requires the explicit respawn key.
+    if (bRagdoll) { TryGetUp(); return; }
     if (bTraversing) return;
     EnterRagdoll(GetVelocity());
 }
@@ -516,6 +528,8 @@ void ANammaPlayerCharacter::EnterRagdoll(const FVector& Momentum)
     UnCrouch();
     GetMesh()->UnHideBoneByName(TEXT("head"));
     bRagdoll = true;
+    DownTime = SettledTime = RecoveryTime = AttackTime = 0.f;
+    bBlocking = false;
     FocusedActor.Reset();
     GetCharacterMovement()->DisableMovement();
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -534,6 +548,7 @@ void ANammaPlayerCharacter::BeginRiding(ANammaBicycle* Bicycle)
     UnCrouch();
     bTraversing = false;
     FocusedActor.Reset();
+    BlockEnd(); AttackTime=0.f;
     Riding = Bicycle;
     GetCharacterMovement()->StopMovementImmediately();
     GetCharacterMovement()->DisableMovement();
@@ -554,7 +569,11 @@ void ANammaPlayerCharacter::EndRiding(const FVector& Where, const FVector& Momen
     SetActorRotation(FRotator(0.f, GetActorRotation().Yaw, 0.f));
     SetActorLocation(Where, false, nullptr, ETeleportType::TeleportPhysics);
     GetCharacterMovement()->SetMovementMode(MOVE_Falling);
-    if (bThrown || !Momentum.IsNearlyZero()) EnterRagdoll(Momentum);
+    if (bThrown || !Momentum.IsNearlyZero())
+    {
+        Vitals.Damage(NammaHuman::ImpactDamage(Momentum.Size() / 100.0, 3.0));
+        EnterRagdoll(Momentum);
+    }
 }
 
 bool ANammaPlayerCharacter::GetRidePose(FNammaRidePose& Out) const

@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "NammaRidePose.h"
+#include "NammaVitals.h"
+#include "NammaPunchMotion.h"
 #include "NammaPlayerCharacter.generated.h"
 
 class ANammaBicycle;
@@ -28,6 +30,19 @@ public:
     void TogglePerspective();
     bool IsFirstPerson() const { return bFirstPerson && !bRagdoll; }
     void RecoverToStart();
+    virtual float TakeDamage(float Amount, const FDamageEvent& Event, AController* Instigator, AActor* Causer) override;
+    virtual void Landed(const FHitResult& Hit) override;
+    float GetHealth() const { return float(Vitals.Health); }
+    float GetStamina() const { return float(Vitals.Stamina); }
+    bool IsDown() const { return bRagdoll; }
+    bool IsDead() const { return !Vitals.Alive(); }
+    float GetRecoveryDepth() const { return 55.f * FMath::Clamp(RecoveryTime / .8f, 0.f, 1.f); }
+    bool TryGetUp();
+    bool GetCombatHands(FVector& Left, FVector& Right) const;
+    NammaHuman::FPunchMotion GetPunchMotion() const;
+    bool IsLeftPunch() const { return bLeftPunch; }
+    void SetSparringPartner();
+    bool IsSparringPartner() const { return bSparringPartner; }
     FText GetInteractionPrompt() const;
     bool GetHandTarget(FVector& WorldTarget) const;
     // Riding hands the pawn over to the bicycle: this character keeps its mesh and
@@ -36,13 +51,30 @@ public:
     void EndRiding(const FVector& Where, const FVector& Momentum, bool bThrown = false);
     bool IsRiding() const { return Riding.IsValid(); }
     bool GetRidePose(FNammaRidePose& Out) const;
-    bool CanBeginRiding() const { return !bRagdoll && !bTraversing && !bIsCrouched && !IsRiding() && !IsPaused(); }
+    bool CanBeginRiding() const { return Vitals.Alive() && RecoveryTime <= 0 && AttackTime <= 0 && !bRagdoll && !bTraversing && !bIsCrouched && !IsRiding() && !IsPaused(); }
     bool CanStandAt(const FVector& Location) const { return CapsuleFitsAt(Location); }
     void EnterRagdoll(const FVector& Momentum);
 private:
     friend class FNammaHumanWorldTest;
     friend class FNammaBicycleWorldTest;
     void ToggleRagdoll();
+    void Punch();
+    void BlockStart();
+    void BlockEnd();
+    void TickCombat(float DeltaSeconds);
+    void Strike();
+    bool CanFight() const;
+    NammaHuman::FVitals Vitals;
+    float AttackTime = 0.f;
+    float RecoveryTime = 0.f;
+    float DownTime = 0.f;
+    float SettledTime = 0.f;
+    bool bStrikeSpent = false;
+    bool bBlocking = false;
+    bool bLeftPunch = false;
+    bool bSparringPartner = false;
+    TWeakObjectPtr<ANammaPlayerCharacter> CombatTarget;
+    FVector CombatHome = FVector::ZeroVector;
     void GrabOrRelease();
     void ReleaseObject();
     void TickHeldObject();

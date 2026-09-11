@@ -1,6 +1,7 @@
 #include "../NammaPlayerCharacter.h"
 #include "../NammaHumanAnimInstance.h"
 #include "Misc/AutomationTest.h"
+#include "Engine/DamageEvents.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -96,10 +97,42 @@ bool FNammaHumanWorldTest::RunTest(const FString& Parameters)
     Human->ToggleRagdoll();
     Tick(30);
     TestTrue(TEXT("Chaos ragdoll active"), Human->bRagdoll && Mesh->IsSimulatingPhysics(TEXT("pelvis")));
+    const FVector FallenAt=Mesh->GetSocketLocation(TEXT("pelvis"));
     Human->ToggleRagdoll();
-    Tick(30);
+    Tick(180);
+    TestTrue(TEXT("Get-up stays near the fall instead of resetting to spawn"), FVector::Dist2D(Human->GetActorLocation(),FallenAt)<150.f);
     TestFalse(TEXT("Recovery exits ragdoll"), Human->bRagdoll);
     TestTrue(TEXT("Recovery restores movement"), Movement->IsMovingOnGround());
+    TestTrue(TEXT("Recovered character is eligible to ride"),Human->CanBeginRiding());
+    TestEqual(TEXT("Harmless fall preserves health"),Human->GetHealth(),100.f);
+    auto* Opponent=World->SpawnActor<ANammaPlayerCharacter>(Human->GetActorLocation()+FVector(100,0,0),FRotator(0,180,0));
+    Opponent->SetSparringPartner();
+    Tick(10);
+    Human->Punch();
+    Tick(10);
+    const FVector PunchShoulder=Mesh->GetSocketLocation(TEXT("upperarm_l"));
+    const FVector PunchElbow=Mesh->GetSocketLocation(TEXT("lowerarm_l"));
+    const FVector PunchWrist=Mesh->GetSocketLocation(TEXT("hand_l"));
+    const FVector Knuckles=Mesh->GetSocketLocation(TEXT("middle_01_l"));
+    TestTrue(TEXT("Punch wrist stays aligned with the forearm"),FVector::DotProduct(
+        (Knuckles-PunchWrist).GetSafeNormal(),(PunchWrist-PunchElbow).GetSafeNormal())>.85f);
+    TestTrue(TEXT("Punch keeps a bend at the elbow"),FVector::Dist(PunchShoulder,PunchWrist)
+        <.995f*(FVector::Dist(PunchShoulder,PunchElbow)+FVector::Dist(PunchElbow,PunchWrist)));
+    Tick(6);
+    TestTrue(TEXT("Punch damages a reachable opponent"),Opponent->GetHealth()<100.f);
+    const float Stamina=Human->GetStamina();
+    Human->Punch();
+    TestEqual(TEXT("Attack cooldown prevents repeat spending"),Human->GetStamina(),Stamina);
+    Opponent->Destroy();
+    Tick(60);
+    Human->TakeDamage(150.f,FDamageEvent(),nullptr,nullptr);
+    TestTrue(TEXT("Lethal damage leaves character down"),Human->IsDead() && Human->IsDown());
+    Tick(180);
+    TestFalse(TEXT("Death cannot use ordinary get-up"),Human->TryGetUp());
+    TestFalse(TEXT("Dead character cannot mount"),Human->CanBeginRiding());
+    Human->RecoverToStart();Tick(60);
+    TestEqual(TEXT("Respawn restores health"),Human->GetHealth(),100.f);
+    TestTrue(TEXT("Respawn restores movement"),Movement->IsMovingOnGround());
     // Exercise solver singularities independently of the authored animation.
     for (const FVector Target : {FVector::ZeroVector, FVector(0, 0, 500), FVector(0, 20, -60)})
     {
